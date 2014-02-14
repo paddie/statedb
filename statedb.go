@@ -17,7 +17,7 @@ const (
 )
 
 type StateDB struct {
-	restored   bool     // has statedb just been restored
+	Restored   bool     // has statedb just been restored
 	consistent bool     // SignalConsistent() == true
 	ctx        *Context // cpt and restore information
 	// version    uint64        // Increase for every consistent state
@@ -46,13 +46,15 @@ func NewStateDB(bucket, dir, suffix string) (*StateDB, error) {
 	}
 
 	// fmt.Println("StateDB: must be restored!")
-	log.Println("StateDB: Previous checkpoint detected. Trying to restore..")
+	log.Println("StateDB: Previous checkpoint detected. Attempting to restore..")
 
 	if err = db.ctx.Restore(db); err != nil {
 		return nil, err
 	}
 
-	db.restored = true
+	db.ctx.restore = false
+
+	db.Restored = true
 
 	return db, nil
 }

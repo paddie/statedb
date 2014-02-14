@@ -122,11 +122,13 @@ func (ctx *Context) Restore(db *StateDB) error {
 		return err
 	}
 
+	db.immutable = imm
+	db.mutable = mut
+
 	// restore and replay the delta commits
 	deltas, delta_id, err := ctx.restoreDelta()
-
 	if err != nil {
-		return err
+		return nil
 	}
 
 	// if the delta id is different from the mutable id, something has gone wrong.
@@ -135,9 +137,6 @@ func (ctx *Context) Restore(db *StateDB) error {
 	}
 
 	// fmt.Println("Restored immutable and mutable from ", ctx_dir, ". Proceeding with delta..")
-
-	db.immutable = imm
-	db.mutable = mut
 
 	if err := db.replayDeltas(deltas); err != nil {
 		return err
