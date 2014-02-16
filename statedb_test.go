@@ -48,12 +48,12 @@ func TestInsertAndDelete(t *testing.T) {
 	kt, _ := ReflectKeyType(r1)
 
 	fmt.Println("Inserting", kt.String())
-	k1, err := db.Insert(&r1)
+	k1, err := db.Insert(&r1, nil)
 	if err != nil {
 		fmt.Println(err)
 	}
 
-	if db.delta[k1.T][k1.K].Action != CREATE {
+	if db.delta[k1.T][k1.K].Action != INSERT {
 		t.Errorf("CREATE entry for %s not in Delta", kt.String())
 	}
 
@@ -64,13 +64,13 @@ func TestInsertAndDelete(t *testing.T) {
 		t.Errorf("%s is not deleted", kt.String())
 	}
 
-	_, _ = db.Insert(&r1)
+	_, _ = db.Insert(&r1, nil)
 
 	db.delta = nil
 
 	db.Remove(kt)
 
-	if db.delta[k1.T][k1.K].Action != DELETE {
+	if db.delta[k1.T][k1.K].Action != REMOVE {
 		t.Errorf("DELETE entry for %s not in Delta", kt.String())
 	}
 }

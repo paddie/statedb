@@ -8,30 +8,37 @@ import (
 
 	"encoding/gob"
 	"errors"
-	"fmt"
+	// "fmt"
 	"log"
 	"os"
 	// "path"
 )
 
-func (db *StateDB) DeltaCheckpoint() error {
+func (db *StateDB) checkpoint() error {
 
-	db.Lock()
-	defer db.Unlock()
+	if len(db.immutable) == 0 {
+		log.Println("StateDB: There is nothing to checkpoint")
+		return nil
+	}
 
-	// if !db.consistent {
-	// 	return errors.New("Context: StateDB is not in a consistent state. Use Consistent() to signal that to the database")
-	// }
+	if db.ctx.cpt_id == 0 || db.ctx.delta_diff > 5 {
+		return db.fullCheckpoint()
+	}
+
+	return db.incrementalCheckpoint()
+}
+
+func (db *StateDB) incrementalCheckpoint() error {
 
 	if len(db.delta) == 0 && len(db.mutable) == 0 {
 		return nil
-		// return errors.New("StateDB: delta and mutable are both empty. Nothing was committed")
 	}
 
 	if err := db.ctx.commitIncrementalCpt(db); err != nil {
 		return err
 	}
 
+	// reset delta after an incremental checkpoint
 	db.delta = nil
 
 	return nil
@@ -40,10 +47,10 @@ func (db *StateDB) DeltaCheckpoint() error {
 // The FullCheckpoint serves as a forced checkpoint of all the known states
 // - Assumes that the system is in a consistent state
 // - Checkpoints the Immutable and Mutable states, and empties the delta log.
-func (db *StateDB) FullCheckpoint() error {
+func (db *StateDB) fullCheckpoint() error {
 
-	db.Lock()
-	defer db.Unlock()
+	// db.Lock()
+	// defer db.Unlock()
 
 	// if !db.consistent {
 	// 	return errors.New("Context: StateDB is not in a consistent state. Use Consistent() to signal that to the database")
@@ -69,10 +76,6 @@ func (db *StateDB) FullCheckpoint() error {
 // Should only succeed if both immutable and mutable checkpoints are succesfully
 // committed to disk.
 func (ctx *Context) commitFullCheckpoint(db *StateDB) error {
-
-	// lock so we can update the context on successful completion
-	ctx.Lock()
-	defer ctx.Unlock()
 
 	if ctx.restore {
 		return errors.New("Context: A previous checkpoint has not been restored. Checkpoint would overwrite previous checkpoint.")
@@ -115,8 +118,8 @@ func (ctx *Context) commitFullCheckpoint(db *StateDB) error {
 // - If there is no reference checkpoint, it will return an error.
 func (ctx *Context) commitIncrementalCpt(db *StateDB) error {
 
-	ctx.Lock()
-	defer ctx.Unlock()
+	// ctx.Lock()
+	// defer ctx.Unlock()
 
 	if ctx.restore {
 		return errors.New("Context: A previous checkpoint has not been restored. Checkpoint would overwrite previous checkpoint.")
@@ -182,7 +185,7 @@ func (ctx *Context) commitMutable(mutable MutKeyTypeMap) error {
 	}
 	defer m_file.Close()
 
-	fmt.Println("commitMutable: ", mutable)
+	// fmt.Println("commitMutable: ", mutable)
 
 	// if there is nothing to commit, only commit the cpt id
 	wrap := &mutableID{
@@ -221,8 +224,7 @@ type deltaID struct {
 //   TODO: make a swap file for the dynamic part.
 func (ctx *Context) commitDelta(delta DeltaTypeMap) error {
 
-	fmt.Printf("Committing delta: %v (%d)\n", delta, len(delta))
-
+	// fmt.Printf("Committing delta: %v (%d)\n", delta, len(delta))
 	// Commit delta
 	d_path := ctx.DeltaPath()
 
@@ -245,7 +247,7 @@ func (ctx *Context) commitDelta(delta DeltaTypeMap) error {
 		return err
 	}
 
-	log.Println("Delta checkpoint committed to: " + d_path)
+	// log.Println("Delta checkpoint committed to: " + d_path)
 
 	return nil
 }

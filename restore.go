@@ -14,29 +14,31 @@ import (
 )
 
 type entry struct {
-	imm []byte
+	imm *ImmState
+	mut *MutState
 	kt  *KeyType
 }
 
 type Iterator struct {
 	i       int
 	entries []*entry
+	db      *StateDB
 }
 
-func (it *Iterator) Next(imm interface{}) (*KeyType, bool) {
+func (it *Iterator) Next(imm, mut interface{}) (*KeyType, bool) {
 
 	if it == nil {
 		return nil, false
 	}
 
-	if it.i == len(it.entries) {
+	if it.i >= len(it.entries) {
 		it.entries = nil
 		return nil, false
 	}
 	entry := it.entries[it.i]
 
 	// immutable
-	buff := bytes.NewBuffer(entry.imm)
+	buff := bytes.NewBuffer(entry.imm.Val)
 	dec := gob.NewDecoder(buff)
 
 	if err := dec.Decode(imm); err != nil {
@@ -45,10 +47,73 @@ func (it *Iterator) Next(imm interface{}) (*KeyType, bool) {
 	}
 	it.i++
 
+	if mut == nil {
+		return entry.kt, true
+	}
+
+	mutv := reflect.ValueOf(mut)
+	if err := validateMutable(mutv); err != nil {
+		return nil, false
+	}
+
+	entry.mut.v = mutv
+
+	// mutable
+	buff = bytes.NewBuffer(entry.mut.Val)
+	dec = gob.NewDecoder(buff)
+
+	if err := dec.Decode(mut); err != nil {
+		fmt.Println(err)
+		return nil, false
+	}
+
 	return entry.kt, true
 }
 
-func (db *StateDB) RestoreImmIter(typeID string) (*Iterator, error) {
+func Decode(val []byte, i interface{}) error {
+	buff := bytes.NewBuffer(val)
+	dec := gob.NewDecoder(buff)
+
+	if err := dec.Decode(i); err != nil {
+		return err
+	}
+
+	return nil
+}
+
+func (db *StateDB) RestoreSingle(imm, mut interface{}) error {
+
+	t_str := ReflectType(imm)
+
+	states, ok := db.immutable[t_str]
+	if !ok {
+		return fmt.Errorf("StateDB.Restore: No object of type '%s' found", t_str)
+	}
+
+	if len(states) != 1 {
+		return errors.New("There are more than one item of this type, use RestoreIter to restore them all")
+	}
+
+	for _, s := range states {
+		kt := &s.KT
+
+		Decode(s.Val, imm)
+		ms := db.mutable.lookup(kt)
+		if ms != nil {
+			mutv := reflect.ValueOf(mut)
+			if err := validateMutable(mutv); err != nil {
+				return err
+			}
+			ms.v = mutv
+			Decode(ms.Val, mut)
+		}
+		break
+	}
+
+	return nil
+}
+
+func (db *StateDB) RestoreIter(typeID string) (*Iterator, error) {
 
 	if db == nil {
 		return nil, errors.New("StateDB: database has not been initialized. Call NewStateDB(...)")
@@ -56,48 +121,51 @@ func (db *StateDB) RestoreImmIter(typeID string) (*Iterator, error) {
 
 	states, ok := db.immutable[typeID]
 	if !ok {
-		return nil, fmt.Errorf("StateDB.RestoreImmIter: TypeID '%s' does not exist", typeID)
+		return nil, fmt.Errorf("StateDB.RestoreIter: TypeID '%s' does not exist", typeID)
 	}
 	entries := []*entry{}
 	for _, state := range states {
+		kt := &state.KT
 		mp := &entry{
-			imm: state.Val,
-			kt:  &state.KT,
+			imm: state,
+			kt:  kt,
 		}
+		mp.mut = db.mutable.lookup(kt)
+
 		entries = append(entries, mp)
 	}
 
 	return &Iterator{entries: entries}, nil
 }
 
-func (db *StateDB) RestoreMutable(kt *KeyType, mut interface{}) error {
+// func (db *StateDB) RestoreMutable(kt *KeyType, mut interface{}) error {
 
-	mv_ptr := reflect.ValueOf(mut)
+// 	mv_ptr := reflect.ValueOf(mut)
 
-	if mv_ptr.Kind() != reflect.Ptr {
-		return fmt.Errorf("StateDB.RestoreMutable: %s is not a pointer to a state", mv_ptr.String())
-	}
+// 	if mv_ptr.Kind() != reflect.Ptr {
+// 		return fmt.Errorf("StateDB.RestoreMutable: %s is not a pointer to a state", mv_ptr.String())
+// 	}
 
-	mv := mv_ptr.Elem()
+// 	mv := mv_ptr.Elem()
 
-	if !mv.CanSet() {
-		return fmt.Errorf("StateDB.RestoreMutable: %s is not settable", mv.String())
-	}
+// 	if !mv.CanSet() {
+// 		return fmt.Errorf("StateDB.RestoreMutable: %s is not settable", mv.String())
+// 	}
 
-	s := db.mutable.lookup(kt)
-	if s == nil {
-		return fmt.Errorf("StateDB.RestoreMutable: No mutable state exists for keytype = %s", kt.String())
-	}
-	if s.Val == nil {
-		return fmt.Errorf("StateDB.RestoreMutable: There is nothing to restore for keytype %s", kt.String())
-	}
-	s.v = mv_ptr
+// 	s := db.mutable.lookup(kt)
+// 	if s == nil {
+// 		return fmt.Errorf("StateDB.RestoreMutable: No mutable state exists for keytype = %s", kt.String())
+// 	}
+// 	if s.Val == nil {
+// 		return fmt.Errorf("StateDB.RestoreMutable: There is nothing to restore for keytype %s", kt.String())
+// 	}
+// 	s.v = mv_ptr
 
-	buff := bytes.NewBuffer(s.Val)
-	dec := gob.NewDecoder(buff)
+// 	buff := bytes.NewBuffer(s.Val)
+// 	dec := gob.NewDecoder(buff)
 
-	return dec.DecodeValue(mv)
-}
+// 	return dec.DecodeValue(mv)
+// }
 
 func (ctx *Context) Restore(db *StateDB) error {
 
@@ -128,6 +196,7 @@ func (ctx *Context) Restore(db *StateDB) error {
 	// restore and replay the delta commits
 	deltas, delta_id, err := ctx.restoreDelta()
 	if err != nil {
+		log.Println("StateDB.Restore: No delas found")
 		return nil
 	}
 
@@ -228,7 +297,7 @@ func (db *StateDB) replayDeltas(deltas []DeltaTypeMap) error {
 		for _, m := range delta {
 			// for every StateOp in Delta
 			for _, st_op := range m {
-				if st_op.Action == DELETE {
+				if st_op.Action == REMOVE {
 					// remove immutable and mutable and register in delta
 					if !db.immutable.contains(&st_op.KT) {
 						return errors.New("StateDB.Replay: Trying to replay DELETE of non-existing KeyType:" + st_op.KT.String())

@@ -120,7 +120,7 @@ func (ctx *Context) initContext() error {
 
 	ctx.setId(id)
 
-	fmt.Printf("Previous checkpoint id found: %d\n", id)
+	// fmt.Printf("Previous checkpoint id found: %d\n", id)
 
 	valid := IsValidCheckpoint(ctx.cpt_dir)
 

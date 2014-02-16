@@ -4,7 +4,9 @@ import (
 	"fmt"
 	"os"
 	// "reflect"
+	"runtime"
 	"testing"
+	// "time"
 )
 
 type Main struct {
@@ -28,6 +30,8 @@ var main []*Main
 var weird []*Weird
 
 func init() {
+
+	runtime.GOMAXPROCS(4)
 
 	main = []*Main{
 		{ID: 1, Tmp: 1},
@@ -57,40 +61,22 @@ func RestoreCheckpoint(path string, t *testing.T) {
 
 	db, err := NewStateDB("", path, "")
 	if err != nil {
-		t.Error(err)
+		t.Fatal(err)
 	}
-
-	var ms []Main
-	if it, err := db.RestoreImmIter(ReflectType(Main{})); err == nil {
-		for {
-			main := new(Main)
-			_, ok := it.Next(main)
-			if !ok {
-				break
-			}
-			ms = append(ms, *main)
-		}
-	} else {
-		t.Error(err)
-	}
-	fmt.Printf("restored: %#v\n", ms)
 
 	var ws []Weird
-	if it, err := db.RestoreImmIter(ReflectType(Weird{})); err == nil {
+	if it, err := db.RestoreIter(ReflectType(Weird{})); err == nil {
 		for {
 			weird := new(Weird)
-			kt, ok := it.Next(weird)
+			_, ok := it.Next(weird, &weird.m)
 			if !ok {
 				break
-			}
-			if err := db.RestoreMutable(kt, &weird.m); err != nil {
-				t.Error(err)
 			}
 
 			ws = append(ws, *weird)
 		}
 	} else {
-		t.Error(err)
+		t.Fatal(err)
 	}
 	fmt.Printf("restored: %#v\n", ws)
 }
@@ -98,60 +84,65 @@ func RestoreCheckpoint(path string, t *testing.T) {
 func WriteFullAndDelta(path string, t *testing.T) {
 	db, err := NewStateDB("", path, "")
 	if err != nil {
-		t.Error(err)
+		t.Fatal(err)
 	}
-	for _, m := range main {
 
-		kt, err := db.Insert(*m)
-		if err != nil {
-			t.Error(err)
-		}
-
-		if m.ID == 2 {
-			if err := db.FullCheckpoint(); err != nil {
-				t.Error(err)
-			}
-		} else if m.ID == 4 || m.ID == 6 {
-			if err := db.DeltaCheckpoint(); err != nil {
-				t.Error(err)
-			}
-		} else if m.ID == 5 {
-			if err := db.Remove(kt); err != nil {
-				t.Error(err)
-			}
-		}
+	if db.Restored {
+		return
 	}
+
+	t_str := ReflectType(Weird{})
+	resp := make(chan *KeyType)
+	n := 0
 	for _, m := range weird {
-		kt, err := db.Insert(m)
-		if err != nil {
-			t.Error(err)
-		}
-
-		if err := db.RegisterMutable(kt, &m.m); err != nil {
-			t.Error(err)
-		}
-
-		m.m.I = 5
-		m.m.K = kt.StringID()
-
-		if m.S == 3 {
-			if err := db.FullCheckpoint(); err != nil {
-				t.Error(err)
+		n++
+		go func(m *Weird) {
+			kt, err := db.Insert(m, &m.m)
+			if err != nil {
+				t.Fatal(err)
 			}
-		} else if m.S == 4 {
+			m.m.K = kt.StringID() + "test"
+			resp <- kt
+		}(m)
+	}
+	fmt.Println(n)
+	for _, _ = range weird {
+		// for i := 0; i < n; i++ {
+		kt := <-resp
+		if kt.StringID() == "3" {
+			if err := db.Checkpoint(); err != nil {
+				t.Fatal(err)
+			}
+			for i, w := range weird {
+				w.m.I = i
+			}
+		} else if kt.StringID() == "4" {
 			if err := db.Remove(kt); err != nil {
-				t.Error(err)
+				t.Fatal(err)
 			}
-		} else if m.S == 5 {
-			str := ReflectType(m)
-			kt, _ := NewStringKeyType("2", str)
+		} else if kt.StringID() == "5" {
+			kt, err := NewStringKeyType("2", t_str)
+			if err != nil {
+				t.Fatal(err)
+			}
 			db.Remove(kt)
 
-			if err := db.DeltaCheckpoint(); err != nil {
-				t.Error(err)
+			if err := db.Checkpoint(); err != nil {
+				t.Fatal(err)
 			}
 		}
 	}
+
+	kt, _ := NewStringKeyType("4", t_str)
+	if db.immutable.contains(kt) {
+		t.Error("kt " + kt.String() + " was not deleted.")
+	}
+	kt, _ = NewStringKeyType("2", t_str)
+	if db.immutable.contains(kt) {
+		t.Error("kt " + kt.String() + " was not deleted.")
+	}
+
+	db.Commit()
 }
 
 func TestCheckpoint(t *testing.T) {

@@ -66,9 +66,9 @@ func reflectKeyType(val reflect.Value) (*KeyType, error) {
 	}
 
 	typeStr := reflectType(val)
-	// if err != nil {
-	// 	return nil, err
-	// }
+	if typeStr == "" {
+		return nil, fmt.Errorf("No accessible keytype for %v", val)
+	}
 
 	return &KeyType{
 		K: *key,

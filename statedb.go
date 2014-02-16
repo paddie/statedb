@@ -2,28 +2,34 @@ package statedb
 
 import (
 	"bytes"
-	// "fmt"
+	"fmt"
 	"reflect"
+	"time"
 	// "strconv"
 	"encoding/gob"
-	// "errors"
+	"errors"
 	"log"
 	"sync"
 )
 
 const (
-	DELETE int = -1
-	CREATE int = 1
+	REMOVE  int = -1
+	INSERT  int = 1
+	RESTORE int = 0
 )
 
 type StateDB struct {
-	Restored   bool     // has statedb just been restored
-	consistent bool     // SignalConsistent() == true
-	ctx        *Context // cpt and restore information
-	// version    uint64        // Increase for every consistent state
-	immutable ImmKeyTypeMap // immutable states
-	delta     DeltaTypeMap  // static state delta
-	mutable   MutKeyTypeMap // mutable state
+	Restored   bool          // has statedb just been restored
+	consistent bool          // SignalConsistent() == true
+	ctx        *Context      // cpt and restore information
+	immutable  ImmKeyTypeMap // immutable states
+	delta      DeltaTypeMap  // static state delta
+	mutable    MutKeyTypeMap // mutable state
+	cpt_chan   chan time.Time
+	sync_chan  chan *Msg
+	cpt_notice bool
+	op_chan    chan *StateOperation
+	quit       chan chan error
 	sync.RWMutex
 }
 
@@ -39,7 +45,12 @@ func NewStateDB(bucket, dir, suffix string) (*StateDB, error) {
 		immutable: make(ImmKeyTypeMap),
 		mutable:   make(MutKeyTypeMap),
 		delta:     make(DeltaTypeMap),
+		cpt_chan:  make(chan time.Time),
+		sync_chan: make(chan *Msg),
+		op_chan:   make(chan *StateOperation),
+		quit:      make(chan chan error),
 	}
+	go db.StateSelect()
 	// No need to restore
 	if !restore {
 		return db, nil
@@ -68,33 +79,160 @@ func (db *StateDB) Types() []string {
 	return ts
 }
 
-func (db *StateDB) IsConsistent() bool {
-	db.RLock()
-	defer db.RUnlock()
-
-	return db.consistent
+type Msg struct {
+	time     time.Time
+	err      chan error
+	forceCPT bool
 }
 
-func (db *StateDB) SetConsistent() {
-	db.Lock()
-	defer db.Unlock()
-
-	db.consistent = true
+type StateOperation struct {
+	kt     *KeyType
+	imm    []byte
+	mut    *MutState
+	action int
+	err    chan error
 }
 
-// The Version is of type uint64, meaning it will loop around
-// when it overflows. This is intentional.
-// func (db *StateDB) Version() int64 {
-// 	return int64(db.version)
-// }
+// Sync is a call for consistency; if the monitor has signalled a checkpoint
+// a checkpoint will be committed. During this time, we cannot allow any processes to
+// write or delete objects in the database.
+func (db *StateDB) Sync() error {
+	// response channel
+	err := make(chan error)
+	db.sync_chan <- &Msg{
+		time: time.Now(),
+		err:  err,
+	}
+	return <-err
+}
 
-func (db *StateDB) ContainsKeyType(kt *KeyType) bool {
+func (db *StateDB) Checkpoint() error {
+	err := make(chan error)
+	db.sync_chan <- &Msg{
+		time:     time.Now(),
+		err:      err,
+		forceCPT: true,
+	}
 
-	db.RLock()
-	defer db.RUnlock()
+	return <-err
+}
 
-	return db.immutable.contains(kt)
+// When called, all checkpointing is shut down,
+// and a final, full checkpoint is written to disk.
+func (db *StateDB) Commit() error {
 
+	err := make(chan error)
+	fmt.Println("Commenceing final commit and shutdown..")
+	db.quit <- err
+
+	return <-err
+}
+
+func (db *StateDB) StateSelect() {
+	for {
+		select {
+		case msg := <-db.sync_chan:
+			// if the checkpoint is not forced or
+			// the monitor has not given a cpt_notice
+			// the sync simply returns
+			if !msg.forceCPT && !db.cpt_notice {
+				msg.err <- nil
+				continue
+			}
+			// reset notice
+			// stupid heuristic for when to checkpoint
+			msg.err <- db.checkpoint()
+			db.cpt_notice = false
+		case <-db.cpt_chan:
+			// set the checkpoint notice to force a checkpoint
+			// in the next consistent state
+			db.cpt_notice = true
+		case so := <-db.op_chan:
+			kt := so.kt
+			if so.action == REMOVE {
+				fmt.Println("received delete: " + kt.String())
+				so.err <- db.remove(kt)
+			} else if so.action == INSERT {
+				fmt.Println("received insert: " + kt.String())
+				so.err <- db.insert(kt, so.imm, so.mut)
+			} else {
+				so.err <- fmt.Errorf("Unknown Action: %d", so.action)
+			}
+		case err_chan := <-db.quit:
+			fmt.Println("Committing final checkpoint..")
+			err_chan <- db.fullCheckpoint()
+			fmt.Println("Checkpoint committed. Shutting down..")
+			break
+		}
+	}
+}
+
+func (db *StateDB) restoreUpdate(kt *KeyType, mut *MutState) error {
+
+	if !db.mutable.contains(kt) {
+		return errors.New("Update: Cannot update non-existant mutable " + kt.String())
+	}
+
+	db.insertMutable(kt, mut)
+
+	return nil
+}
+
+func (db *StateDB) insert(kt *KeyType, imm []byte, mut *MutState) error {
+	if db.immutable.contains(kt) {
+		return errors.New("KeyType " + kt.String() + " already exists")
+	}
+
+	db.insertImmutable(kt, imm)
+	if mut != nil {
+		db.insertMutable(kt, mut)
+	}
+
+	return nil
+}
+
+func (db *StateDB) remove(kt *KeyType) error {
+
+	if !db.immutable.contains(kt) {
+		return fmt.Errorf("StateDB.Remove: KeyType %s does not exist", kt.String())
+	}
+
+	db.immutable.remove(kt)
+
+	if db.delta == nil {
+		db.delta = make(DeltaTypeMap)
+	}
+
+	db.delta.remove(kt)
+	db.mutable.remove(kt)
+
+	return nil
+}
+
+func (db *StateDB) insertImmutable(kt *KeyType, val []byte) {
+
+	if db.immutable == nil {
+		db.immutable = make(ImmKeyTypeMap)
+	}
+
+	db.immutable.insert(kt, val)
+	db.insertDelta(kt, val)
+}
+
+// Do we need a check for existense, or is that already made?
+func (db *StateDB) insertDelta(kt *KeyType, val []byte) {
+
+	if db.delta == nil {
+		db.delta = make(DeltaTypeMap)
+	}
+	db.delta.insert(kt, val)
+}
+
+func (db *StateDB) insertMutable(kt *KeyType, mut *MutState) {
+	if db.mutable == nil {
+		db.mutable = make(MutKeyTypeMap)
+	}
+	db.mutable.insert(kt, mut)
 }
 
 // --------------------------
@@ -134,12 +272,10 @@ func (m ImmKeyTypeMap) insert(kt *KeyType, val []byte) {
 		m[kt.TypeID()] = make(ImmStateMap)
 	}
 
-	s := &ImmState{
+	m[kt.TypeID()][kt.K] = &ImmState{
 		KT:  *kt,
 		Val: val,
 	}
-
-	m[kt.TypeID()][kt.K] = s
 }
 
 func (m ImmKeyTypeMap) remove(kt *KeyType) {
@@ -170,6 +306,10 @@ type MutState struct {
 // When checkpointing the system, encode the non-public interface into the Val,
 // followed by a normal encoding of the struct
 func (m *MutState) GobEncode() ([]byte, error) {
+
+	if !m.v.IsValid() {
+		return nil, fmt.Errorf("Trying to checkpoint a mutable state with a pointer from a previous ceckpoint")
+	}
 
 	var b bytes.Buffer
 	enc := gob.NewEncoder(&b)
@@ -220,21 +360,17 @@ func (m MutKeyTypeMap) lookup(kt *KeyType) *MutState {
 	return nil
 }
 
-func (m MutKeyTypeMap) insert(kt *KeyType, v reflect.Value) error {
+func (m MutKeyTypeMap) insert(kt *KeyType, mut *MutState) {
 
 	if _, ok := m[kt.TypeID()]; !ok {
 		m[kt.TypeID()] = make(MutStateMap)
 	}
-
-	s := &MutState{
-		KT:  *kt,
-		Val: nil,
-		v:   v,
-	}
-
-	m[kt.TypeID()][kt.K] = s
-
-	return nil
+	m[kt.TypeID()][kt.K] = mut
+	// m[kt.TypeID()][kt.K] = &MutState{
+	// 	KT:  kt,
+	// 	Val: nil,
+	// 	v:   v,
+	// }
 }
 
 func (m MutKeyTypeMap) remove(kt *KeyType) {
@@ -283,13 +419,11 @@ func (m DeltaTypeMap) insert(kt *KeyType, val []byte) {
 		m[kt.TypeID()] = make(DeltaStateOpMap)
 	}
 
-	s := &StateOp{
+	m[kt.TypeID()][kt.K] = &StateOp{
 		KT:     *kt,
-		Action: CREATE,
 		Val:    val,
+		Action: INSERT,
 	}
-
-	m[kt.TypeID()][kt.K] = s
 }
 
 func (m DeltaTypeMap) remove(kt *KeyType) {
@@ -310,7 +444,7 @@ func (m DeltaTypeMap) remove(kt *KeyType) {
 		// insert a DELETE entry for this keytype
 		m[kt.T][kt.K] = &StateOp{
 			KT:     *kt,
-			Action: DELETE,
+			Action: REMOVE,
 			Val:    nil,
 		}
 	}
