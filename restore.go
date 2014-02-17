@@ -55,7 +55,7 @@ func (it *Iterator) Next(imm, mut interface{}) (*KeyType, bool) {
 	if err := validateMutable(mutv); err != nil {
 		return nil, false
 	}
-
+	// update the v with the new pointer value
 	entry.mut.v = mutv
 
 	// mutable
@@ -77,7 +77,6 @@ func Decode(val []byte, i interface{}) error {
 	if err := dec.Decode(i); err != nil {
 		return err
 	}
-
 	return nil
 }
 
@@ -97,7 +96,9 @@ func (db *StateDB) RestoreSingle(imm, mut interface{}) error {
 	for _, s := range states {
 		kt := &s.KT
 
-		Decode(s.Val, imm)
+		if err := Decode(s.Val, imm); err != nil {
+			return err
+		}
 		ms := db.mutable.lookup(kt)
 		if ms != nil {
 			mutv := reflect.ValueOf(mut)
