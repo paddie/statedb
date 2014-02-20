@@ -21,7 +21,7 @@ func (db *StateDB) checkpoint() error {
 		return nil
 	}
 
-	if db.ctx.cpt_id == 0 || db.ctx.delta_diff > 5 {
+	if db.ctx.rcid == 0 || db.ctx.dcnt > 5 {
 		return db.fullCheckpoint()
 	}
 
@@ -77,7 +77,7 @@ func (db *StateDB) fullCheckpoint() error {
 // committed to disk.
 func (ctx *Context) commitFullCheckpoint(db *StateDB) error {
 
-	if ctx.restore {
+	if ctx.restored {
 		return errors.New("Context: A previous checkpoint has not been restored. Checkpoint would overwrite previous checkpoint.")
 	}
 
@@ -87,8 +87,8 @@ func (ctx *Context) commitFullCheckpoint(db *StateDB) error {
 	// 3. commit mutabe
 	// 4. if everything succeeds, replace context with the temporary one
 	// 5. if not, clean up the temporary dirs we created..
-	tmp := ctx.newContextWithId(ctx.cpt_id + 1)
-	tmp.delta_diff = 0
+	tmp := ctx.newContextWithId(ctx.rcid + 1)
+	tmp.dcnt = 0
 	if err := tmp.prepareDirectories(); err != nil {
 		return err
 	}
@@ -121,16 +121,16 @@ func (ctx *Context) commitIncrementalCpt(db *StateDB) error {
 	// ctx.Lock()
 	// defer ctx.Unlock()
 
-	if ctx.restore {
+	if ctx.restored {
 		return errors.New("Context: A previous checkpoint has not been restored. Checkpoint would overwrite previous checkpoint.")
 	}
 
-	if ctx.cpt_id == 0 {
+	if ctx.rcid == 0 {
 		return errors.New("Context: A *full* checkpoint MUST be committed prior to any delta checkpoint")
 	}
 
 	tmp := ctx.copyContext()
-	tmp.delta_diff++
+	tmp.dcnt++
 
 	if err := tmp.commitDelta(db.delta); err != nil {
 		return err
@@ -167,9 +167,9 @@ func (ctx *Context) commitImmutable(immutable ImmKeyTypeMap) error {
 }
 
 type mutableID struct {
-	DeltaDiff int
-	CptId     int
-	Mutable   MutKeyTypeMap
+	DCNT    int
+	RCID    int
+	Mutable MutKeyTypeMap
 }
 
 // Overwrites any existing mutable checkpoint in the current
@@ -189,8 +189,8 @@ func (ctx *Context) commitMutable(mutable MutKeyTypeMap) error {
 
 	// if there is nothing to commit, only commit the cpt id
 	wrap := &mutableID{
-		DeltaDiff: ctx.delta_diff,
-		CptId:     ctx.cpt_id,
+		DCNT: ctx.dcnt,
+		RCID: ctx.rcid,
 	}
 	if len(mutable) == 0 {
 		wrap.Mutable = nil
@@ -207,9 +207,9 @@ func (ctx *Context) commitMutable(mutable MutKeyTypeMap) error {
 }
 
 type deltaID struct {
-	DeltaDiff int
-	CptId     int
-	Delta     DeltaTypeMap
+	DCNT  int
+	RCID  int
+	Delta DeltaTypeMap
 }
 
 // A delta checkpoint writes the delta and mutable to disk.
@@ -237,9 +237,9 @@ func (ctx *Context) commitDelta(delta DeltaTypeMap) error {
 
 	var d_wrap *deltaID
 	if len(delta) == 0 {
-		d_wrap = &deltaID{ctx.delta_diff, ctx.cpt_id, nil}
+		d_wrap = &deltaID{ctx.dcnt, ctx.rcid, nil}
 	} else {
-		d_wrap = &deltaID{ctx.delta_diff, ctx.cpt_id, delta}
+		d_wrap = &deltaID{ctx.dcnt, ctx.rcid, delta}
 	}
 
 	enc := gob.NewEncoder(d_file)
@@ -247,7 +247,7 @@ func (ctx *Context) commitDelta(delta DeltaTypeMap) error {
 		return err
 	}
 
-	// log.Println("Delta checkpoint committed to: " + d_path)
+	log.Println("Delta checkpoint committed to: " + d_path)
 
 	return nil
 }

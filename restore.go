@@ -350,36 +350,3 @@ func IsValidCheckpoint(path string) bool {
 
 	return true
 }
-
-// Get the ID of the most recent full commit in the ctx.full folder.
-// Returns 0 if no valid full commit exists in the context.
-func (ctx *Context) probeCptId() int {
-	files, err := ioutil.ReadDir(ctx.full)
-	if err != nil {
-		return 0
-	}
-
-	if len(files) == 0 {
-		return 0
-	}
-
-	max := -1
-	folders := 0
-	for _, f := range files {
-		if f.IsDir() {
-			folders++
-			if id, err := strconv.Atoi(f.Name()); err == nil {
-				if id > max {
-					max = id
-				}
-			}
-		}
-	}
-	// if none of the files in ctx.dir were cpt folders
-	if folders == 0 || max <= 0 {
-		return 0
-	}
-
-	// set current cpt id in context
-	return max
-}

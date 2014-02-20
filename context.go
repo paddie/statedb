@@ -14,20 +14,10 @@ import (
 // // Volume: Amazon bucket identifier or Volume
 // // Path:   Path to file in bucket
 // // Suffix:  Combination of Machine and application maybe?
-// type ctx_directory struct {
-// 	volume, dir, suffix string // required for committing and recovering state
-// 	full                string // <bucket>/<dir>/<suffix>
-// 	cpt_dir             string // <bucket>/<dir>/<suffix>/<cpt_id>
-// }
-
-// // the current state of the context
-// // - cpt_id: 0 means no reference checkpoint has been committed, increases with every checkpoint
-// // - delta_cnt:
-// type ctx_status struct {
-// 	restore   bool // does the system need to be restored before using it?
-// 	cpt_id    int  // the id of the current reference checkpoint
-// 	delta_cnt int  // the number of delta checkpoints since the last reference checkpoint
-// }
+type ctx_dir struct {
+	volume, dir, suffix string // required for committing and recovering state
+	full                string // <bucket>/<dir>/<suffix>
+}
 
 // type ctx_stats struct {
 // 	LastCpt          time.Time
@@ -38,29 +28,32 @@ import (
 // 	TMax, TMin, TAvg time.Duration // Total stats
 // }
 
-// type ctx struct {
-// 	dir    ctx_directory
-// 	status ctx_status
-// 	stats  ctx_stats
-// 	// cpt_id     int    // the id of the last full update
-// 	// delta_diff int    // number of delta checkpoints relative to full checkpoint
-// 	// full       string // <bucket>/<dir>/<suffix>
-// 	// cpt_dir    string // <bucket>/<dir>/<suffix>/<cpt_id>
-// 	// restore    bool   // is true as long as a previous checkpoint has not been restored
-// 	sync.RWMutex
-// }
-
 type Context struct {
-	bucket, dir, suffix string
-	// status ctx_status
+	dir      ctx_dir
+	restored bool // does the system need to be restored before using it?
+	rcid     int  // reference checkpoint id - the id of the current reference checkpoint
+	dcnt     int  // delta count - the number of delta checkpoints since the last reference checkpoint
+	mcnt     int  // mutable checkpoints since the last reference checkpoint
 	// stats  ctx_stats
-	cpt_id     int    // the id of the last full update
-	delta_diff int    // number of delta checkpoints relative to full checkpoint
-	full       string // <bucket>/<dir>/<suffix>
-	cpt_dir    string // <bucket>/<dir>/<suffix>/<cpt_id>
-	restore    bool   // is true as long as a previous checkpoint has not been restored
+	// cpt_id     int    // the id of the last full update
+	// delta_diff int    // number of delta checkpoints relative to full checkpoint
+	// full       string // <bucket>/<dir>/<suffix>
+	// cpt_dir    string // <bucket>/<dir>/<suffix>/<cpt_id>
+	// restore    bool   // is true as long as a previous checkpoint has not been restored
 	sync.RWMutex
 }
+
+// type Context struct {
+// 	bucket, dir, suffix string
+// 	// status ctx_status
+// 	// stats  ctx_stats
+// 	rcid    int    // Reference Checkpoint ID - the id of the last full checkpoint
+// 	dcnt    int    // Delta Count - number of delta checkpoints relative to latest full checkpoint
+// 	full    string // <bucket>/<dir>/<suffix>
+// 	cpt_dir string // <bucket>/<dir>/<suffix>/<cptid>
+// 	restore bool   // is true as long as a previous checkpoint has not been restored
+// 	sync.RWMutex
+// }
 
 // Bucket: Amazon bucket identifier
 // Path:   Path to file in bucket
@@ -68,18 +61,22 @@ type Context struct {
 func NewContext(bucket, dir, suffix string) (*Context, bool, error) {
 
 	if dir == "" {
-		return nil, false, fmt.Errorf("NewContext: bucket='%s' path='%s' suffix='%s'", bucket, dir, suffix)
+		return nil, false, fmt.Errorf("NewContext: bucket='%s' dir='%s' suffix='%s'", bucket, dir, suffix)
 	}
 
 	// clean the parameters
 	dir = path.Clean(dir)
 	full := path.Join(bucket, dir, suffix)
 
-	ctx := &Context{
+	ctx_d := ctx_dir{
+		volume: bucket,
 		dir:    dir,
-		bucket: bucket,
 		suffix: suffix,
 		full:   full,
+	}
+
+	ctx := &Context{
+		dir: ctx_d,
 	}
 
 	// Create checkpoint directories. If some already exist at this checkpoint, signal a restore..
@@ -88,27 +85,27 @@ func NewContext(bucket, dir, suffix string) (*Context, bool, error) {
 		return nil, false, err
 	}
 
-	fmt.Printf("signalling restore %v: id %d\n", ctx.restore, ctx.cpt_id)
+	// fmt.Printf("signalling restore %v: id %d\n", ctx.restore, ctx.cpt_id)
 
-	if ctx.cpt_id != 0 {
+	if ctx.rcid != 0 {
 		fmt.Printf("Previous checkpoint id=%d detected\n", ctx.cpt_id)
 	} else {
 		log.Printf("No previous checkpoint detected\n")
 	}
 
-	return ctx, ctx.restore, nil
+	return ctx, ctx.restored, nil
 }
 
 // If any existing checkpoints exist, a restore is signalled.
 // If no previous checkpoints exist, the checkpoint dir is created.
 func (ctx *Context) initContext() error {
 	// make sure that the checkpoint dir exists
-	if !IsDir(ctx.full) {
-		log.Println("Creating Checkpoint dir at " + ctx.full)
-		return CreateDir(ctx.full)
+	if !IsDir(ctx.dir.full) {
+		log.Println("Creating Checkpoint dir at " + ctx.dir.full)
+		return CreateDir(ctx.dir.full)
 	}
 
-	fmt.Println("Probing existing checkpoint..")
+	fmt.Println("Probing for existing checkpoints..")
 
 	// note that there there might be a previous backup
 	// TODO: update to something that describes the difference
@@ -120,11 +117,7 @@ func (ctx *Context) initContext() error {
 
 	ctx.setId(id)
 
-	// fmt.Printf("Previous checkpoint id found: %d\n", id)
-
 	valid := IsValidCheckpoint(ctx.cpt_dir)
-
-	// if the previous cpt is valid, signal a restore
 
 	if id != 0 && valid {
 		ctx.restore = true
@@ -136,15 +129,37 @@ func (ctx *Context) initContext() error {
 	return nil
 }
 
-func (ctx *Context) setId(id int) {
-	ctx.cpt_id = id
-	ctx.cpt_dir = path.Join(ctx.full, fmt.Sprintf("%010d", id))
+func (ctx *Context) setRCID(id int) {
+	ctx.status.rcid = id
+	ctx.dir.cpt_dir = path.Join(ctx.dir.full, fmt.Sprintf("%010d", id))
 }
 
 func (ctx *Context) newContextWithId(id int) *Context {
 	tmp := *ctx
 	tmp.setId(id)
 
+	return &tmp
+}
+
+func (ctx *Context) newIncrementalContext(db *StateDB) *Context {
+
+	tmp := *ctx
+	// increase DCNT if there is something in the delta log
+	if len(db.delta) > 0 {
+		tmp.dcnt++
+	}
+	tmp.mcnt++
+
+	return &tmp
+}
+
+func (ctx *Context) newRelativeContext(db *StateDB) *Context {
+
+	tmp := *ctx
+	// increase DCNT if there is something in the delta log
+	tmp.rcid++
+	tmp.mcnt = 0
+	tmp.dcnt = 0
 	return &tmp
 }
 
@@ -164,14 +179,91 @@ func (ctx *Context) copyContext() *Context {
 	return &tmp
 }
 
+// TODO: cache the checkpoint dir
+func (ctx *Context) CheckpointDir() string {
+	return path.Join(ctx.dir.full, fmt.Sprintf("%010d", ctx.rcid))
+}
+
+// Filename is generated by the MCNT (Mutable CouNT)
 func (ctx *Context) MutablePath() string {
-	return ctx.cpt_dir + "/mutable.cpt"
+	return ctx.CheckpointDir() + fmt.Sprintf("/mutable_%d.cpt", ctx.mcnt)
 }
 
 func (ctx *Context) ImmutablePath() string {
-	return ctx.cpt_dir + "/immutable.cpt"
+	return ctx.CheckpointDir() + "/immutable.cpt"
 }
 
+// Filename is generated by the DCNT (Delta CouNT)
 func (ctx *Context) DeltaPath() string {
-	return ctx.cpt_dir + "/delta.cpt"
+	return ctx.CheckpointDir() + fmt.Sprintf("/delta_%d.cpt", ctx.dcnt)
+}
+
+func (ctx *Context) restorePreviousCheckpoint() error {
+
+	id := probeCptId(ctx.dir.full)
+	if id == 0 {
+		return nil, errors.New("No previous checkpoint detected")
+	}
+
+	tmp, err := BuildPreviousContext(ctx.newContextWithId(id))
+	if err != nil {
+		return err
+	}
+
+	*ctx = *tmp
+
+	return nil
+}
+
+func RebuildPreviousContext(ctx *Context) *Context {
+	id := probeRCID(ctx.dir.full)
+	if id == 0 {
+		return ctx
+	}
+
+	// Get all the paths etc
+	tmp := ctx.copyContext()
+	tmp.rcid = id
+	tmp.restored = true
+
+	// 1. decode reference checkpoint
+
+	// 2. Get mutable chackpoint to get the max DCNT
+
+	// 3. build list of delta checkpoints and replay the changes in the database
+
+	return nil
+}
+
+// Get the ID of the most recent full commit in the ctx.full folder.
+// Returns 0 if no valid full commit exists in the context.
+func probeRCID(path string) int {
+	files, err := ioutil.ReadDir(path)
+	if err != nil {
+		return 0
+	}
+
+	if len(files) == 0 {
+		return 0
+	}
+
+	max := -1
+	folders := 0
+	for _, f := range files {
+		if f.IsDir() {
+			folders++
+			if id, err := strconv.Atoi(f.Name()); err == nil {
+				if id > max {
+					max = id
+				}
+			}
+		}
+	}
+	// if none of the files in ctx.dir were cpt folders
+	if folders == 0 || max <= 0 {
+		return 0
+	}
+
+	// set current cpt id in context
+	return max
 }
