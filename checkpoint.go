@@ -168,7 +168,7 @@ func (ctx *Context) commitIncrementalCpt(db *StateDB) error {
 	defer ctx.PostIncremental(tmp)
 
 	if len(db.delta) > 0 {
-		tmp.dcnt++
+		tmp.dcnt += db.delta.count()
 		if err := tmp.commitDelta(db.delta); err != nil {
 			return err
 		}

@@ -120,6 +120,9 @@ func (db *StateDB) RestoreSingle(imm interface{}) error {
 		}
 
 		ms := db.mutable.lookup(kt)
+		if ms.Val == nil {
+			return nil
+		}
 		if ms != nil {
 			mut := m.Mutable()
 			mutv := reflect.ValueOf(mut)
@@ -127,6 +130,7 @@ func (db *StateDB) RestoreSingle(imm interface{}) error {
 				return err
 			}
 			ms.v = mutv
+
 			Decode(ms.Val, mut)
 		}
 		// break after one restore..
@@ -172,7 +176,7 @@ func (ctx *Context) RestoreStateDB(db *StateDB) error {
 
 	imm, err := ctx.restoreImmutable()
 	if err != nil {
-		log.Println("StateDB.Restore: Failed to restore immutable from " + ctx.CheckpointDir())
+		log.Println("StateDB.Restore: Failed to decode immutable checkpoint from " + ctx.CheckpointDir())
 		return err
 	}
 
@@ -189,6 +193,8 @@ func (ctx *Context) RestoreStateDB(db *StateDB) error {
 	db.immutable = imm
 	db.mutable = mut
 
+	db.restored = true
+
 	// there are no delta checkpoints to log
 	if dcnt_max == 0 {
 		return nil
@@ -197,14 +203,13 @@ func (ctx *Context) RestoreStateDB(db *StateDB) error {
 	// restore and replay the delta commits
 	deltas, err := ctx.loadDeltas(dcnt_max)
 	if err != nil {
-		log.Println("StateDB.Restore: " + err.Error())
-		return nil
+		return err
 	}
 
 	if err := db.replayDeltas(deltas); err != nil {
 		return err
 	}
-	db.restored = true
+
 	return nil
 }
 

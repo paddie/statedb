@@ -77,7 +77,6 @@ func (db *StateDB) Insert(i interface{}) (*KeyType, error) {
 		err:    err_chan,
 	}
 	// if the mutable state is nil, we also validate and encode it
-
 	m, ok := i.(Mutable)
 	if ok {
 		mut := m.Mutable()

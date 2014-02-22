@@ -1,7 +1,7 @@
 package statedb
 
 import (
-	// "errors"
+	"errors"
 	// "fmt"
 	"os"
 	"reflect"

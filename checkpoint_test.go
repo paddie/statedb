@@ -70,6 +70,8 @@ func init() {
 		{ID: "3", S: 3},
 		{ID: "4", S: 4},
 		{ID: "5", S: 5},
+		{ID: "6", S: 6},
+		{ID: "7", S: 7},
 	}
 }
 
@@ -102,9 +104,9 @@ func RestoreCheckpoint(path string, t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if err = db.Checkpoint(); err != nil {
-		t.Fatal(err)
-	}
+	// if err = db.Checkpoint(); err != nil {
+	// 	t.Fatal(err)
+	// }
 
 	fmt.Printf("restored: %#v\n", ws)
 }
@@ -161,10 +163,10 @@ func WriteFullAndDelta(path string, t *testing.T) {
 	n := 0
 	var wg sync.WaitGroup
 
-	for _, m := range weird {
+	for i, m := range weird {
 		wg.Add(1)
 		n++
-		go func(m *Weird, wg *sync.WaitGroup) {
+		go func(m *Weird, wg *sync.WaitGroup, i int) {
 			kt, err := db.Insert(m)
 			fmt.Println(kt)
 			if err != nil {
@@ -172,34 +174,25 @@ func WriteFullAndDelta(path string, t *testing.T) {
 				resp <- kt
 				t.Fatal(err)
 			}
+			if i%2 == 0 {
+				if err := db.Checkpoint(); err != nil {
+					t.Fatal(err)
+				}
+			}
+
 			m.m.K = kt.StringID() + "test"
 			wg.Done()
 			resp <- kt
-		}(m, &wg)
+		}(m, &wg, i)
 	}
 	wg.Wait()
-	for _, _ = range weird {
+	for i, _ := range weird {
 		// for i := 0; i < n; i++ {
 		kt := <-resp
 		if kt == nil {
 			continue
 		}
-		if kt.StringID() == "3" {
-			if err := db.Checkpoint(); err != nil {
-				t.Fatal(err)
-			}
-			for i, w := range weird {
-				w.m.I = i
-			}
-		} else if kt.StringID() == "4" {
-			if err := db.Remove(kt); err != nil {
-				t.Fatal(err)
-			}
-		} else if kt.StringID() == "5" {
-			kt, err := NewStringKeyType("2", t_str)
-			if err != nil {
-				t.Fatal(err)
-			}
+		if kt.StringID() == "4" || kt.StringID() == "2" {
 			if err := db.Remove(kt); err != nil {
 				t.Fatal(err)
 			}
@@ -208,8 +201,19 @@ func WriteFullAndDelta(path string, t *testing.T) {
 				t.Fatal(err)
 			}
 		}
-	}
 
+		// after 4 iterations, update the mutable bits
+		if i == 3 {
+			for i, w := range weird {
+				w.m.I = i
+			}
+		}
+		if i%2 == 0 {
+			if err := db.Checkpoint(); err != nil {
+				t.Fatal(err)
+			}
+		}
+	}
 	kt, _ := NewStringKeyType("4", t_str)
 	if db.immutable.contains(kt) {
 		t.Error("kt " + kt.String() + " was not deleted.")
@@ -219,10 +223,8 @@ func WriteFullAndDelta(path string, t *testing.T) {
 		t.Error("kt " + kt.String() + " was not deleted.")
 	}
 	// is not normally possible
-	db.incrementalCheckpoint()
-	db.incrementalCheckpoint()
-	db.incrementalCheckpoint()
-	db.Commit()
+
+	db.Checkpoint()
 }
 
 func TestCheckpoint(t *testing.T) {
