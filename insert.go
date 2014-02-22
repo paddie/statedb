@@ -50,65 +50,6 @@ func (db *StateDB) Remove(kt *KeyType) error {
 	return <-err_chan
 }
 
-type Mutable interface {
-	Mutable() interface{}
-}
-
-type KeyStr interface {
-	Key() string
-}
-
-type KeyInt interface {
-	Key() int
-}
-
-type Typer interface {
-	Type() string
-}
-
-func ReflectKeyTypeM(v interface{}) (*KeyType, error) {
-
-	if v == nil {
-		return nil, errors.New("Keytype: <nil> does not have keytype")
-	}
-
-	typ := ReflectTypeM(v)
-	key, err := ReflectKeyM(v)
-	if err != nil {
-		return nil, err
-	}
-
-	return &KeyType{*key, typ}, nil
-}
-
-// If no Type method is defined, use reflect to determine type
-func ReflectTypeM(v interface{}) string {
-	// call Type if object supports it
-	if m, ok := v.(Typer); ok {
-		return m.Type()
-
-	}
-	// or reflect the type instead
-	return ReflectType(v)
-}
-
-func ReflectKeyM(v interface{}) (*Key, error) {
-	if m, ok := v.(KeyInt); ok {
-		return NewIntKey(m.Key())
-	}
-
-	if m, ok := v.(KeyStr); ok {
-		return NewStringKey(m.Key())
-	}
-
-	k, err := ReflectKey(v)
-	if err != nil {
-		return nil, err
-	}
-
-	return k, nil
-}
-
 func (db *StateDB) Insert(i interface{}) (*KeyType, error) {
 
 	// we allow for the mutable state to be <nil>

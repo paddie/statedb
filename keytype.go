@@ -31,36 +31,20 @@ func CustomKeyType(key *Key, typeStr string) (*KeyType, error) {
 		T: typeStr}, nil
 }
 
-func NewKeyType(key *Key, i interface{}) (*KeyType, error) {
-
-	if i == nil {
-		return nil, errors.New("Cannot generate KeyType from <nil>")
-	}
+func NewKeytype(key *Key, typ string) (*KeyType, error) {
 
 	if key == nil || !key.IsValid() {
-		return nil, fmt.Errorf("KeyType: key %#v is not a valid key", key)
+		return nil, errors.New("Key: Invalid key " + key.String())
 	}
-
-	typeStr := reflectType(Indirect(reflect.ValueOf(i)))
 
 	return &KeyType{
 		K: *key,
-		T: typeStr}, nil
-}
-
-func ReflectKeyType(i interface{}) (*KeyType, error) {
-
-	if i == nil {
-		return nil, errors.New("Cannot generate KeyType from <nil>")
-	}
-
-	val := Indirect(reflect.ValueOf(i))
-
-	return reflectKeyType(val)
+		T: typ,
+	}, nil
 }
 
 func reflectKeyType(val reflect.Value) (*KeyType, error) {
-	key, err := reflectKey(val)
+	key, err := reflectKey(Indirect(val))
 	if err != nil {
 		return nil, err
 	}
