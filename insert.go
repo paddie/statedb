@@ -50,24 +50,78 @@ func (db *StateDB) Remove(kt *KeyType) error {
 	return <-err_chan
 }
 
-type Checkpointable interface {
+type Mutable interface {
 	Mutable() interface{}
 }
 
-func (db *StateDB) Insert(i Checkpointable) (*KeyType, error) {
+type KeyStr interface {
+	Key() string
+}
+
+type KeyInt interface {
+	Key() int
+}
+
+type Typer interface {
+	Type() string
+}
+
+func ReflectKeyTypeM(v interface{}) (*KeyType, error) {
+
+	if v == nil {
+		return nil, errors.New("Keytype: <nil> does not have keytype")
+	}
+
+	typ := ReflectTypeM(v)
+	key, err := ReflectKeyM(v)
+	if err != nil {
+		return nil, err
+	}
+
+	return &KeyType{*key, typ}, nil
+}
+
+// If no Type method is defined, use reflect to determine type
+func ReflectTypeM(v interface{}) string {
+	// call Type if object supports it
+	if m, ok := v.(Typer); ok {
+		return m.Type()
+
+	}
+	// or reflect the type instead
+	return ReflectType(v)
+}
+
+func ReflectKeyM(v interface{}) (*Key, error) {
+	if m, ok := v.(KeyInt); ok {
+		return NewIntKey(m.Key())
+	}
+
+	if m, ok := v.(KeyStr); ok {
+		return NewStringKey(m.Key())
+	}
+
+	k, err := ReflectKey(v)
+	if err != nil {
+		return nil, err
+	}
+
+	return k, nil
+}
+
+func (db *StateDB) Insert(i interface{}) (*KeyType, error) {
 
 	// we allow for the mutable state to be <nil>
 	if i == nil {
 		return nil, errors.New("StateDB: an inserted immutable state cannot be <nil>")
 	}
 
-	immv := Indirect(reflect.ValueOf(i))
-
-	kt, err := reflectKeyType(immv)
+	kt, err := ReflectKeyTypeM(i)
 	if err != nil {
 		return nil, err
 	}
 
+	immv := Indirect(reflect.ValueOf(i))
 	imm_d, err := encodeImmutable(immv)
 	if err != nil {
 		return nil, err
@@ -82,17 +136,21 @@ func (db *StateDB) Insert(i Checkpointable) (*KeyType, error) {
 		err:    err_chan,
 	}
 	// if the mutable state is nil, we also validate and encode it
-	mut := i.Mutable()
-	if mut != nil {
-		fmt.Println("Inserting Mutable part of " + kt.String())
-		mutv := reflect.ValueOf(mut)
-		if err := validateMutable(mutv); err != nil {
-			return nil, err
-		}
-		so.mut = &MutState{
-			KT:  *kt,
-			Val: nil,
-			v:   mutv,
+
+	m, ok := i.(Mutable)
+	if ok {
+		mut := m.Mutable()
+		if mut != nil {
+			fmt.Println("Inserting Mutable part of " + kt.String())
+			mutv := reflect.ValueOf(mut)
+			if err := validateMutable(mutv); err != nil {
+				return nil, err
+			}
+			so.mut = &MutState{
+				KT:  *kt,
+				Val: nil,
+				v:   mutv,
+			}
 		}
 	}
 

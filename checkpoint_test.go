@@ -20,16 +20,31 @@ type w_mut struct {
 	K string
 }
 
+type Wurd struct {
+	ID string
+	w  w_mit
+}
+
+type w_mit struct {
+	I int
+}
+
+func (w *Wurd) Mutable() interface{} {
+	return &w.w
+}
+
 type Weird struct {
 	ID string
 	S  int
 	m  w_mut
 }
 
+func (w *Weird) Type() string {
+	return "WeirdMan"
+}
+
 func (w *Weird) Mutable() interface{} {
-
-	return w.m
-
+	return &w.m
 }
 
 var main []*Main
@@ -72,9 +87,42 @@ func RestoreCheckpoint(path string, t *testing.T) {
 	}
 
 	var ws []Weird
-	if it, err := db.RestoreIter(ReflectType(Weird{})); err == nil {
+	if it, err := db.RestoreIter(ReflectTypeM(&Weird{})); err == nil {
 		for {
 			weird := new(Weird)
+			_, ok := it.Next(weird)
+			if !ok {
+				break
+			}
+
+			// fmt.Println(weird)
+			ws = append(ws, *weird)
+		}
+	} else {
+		t.Fatal(err)
+	}
+
+	if err = db.Checkpoint(); err != nil {
+		t.Fatal(err)
+	}
+
+	fmt.Printf("restored: %#v\n", ws)
+}
+
+func RestorePartialState(path string, t *testing.T) {
+
+	fmt.Println("restoring from " + path)
+
+	db, err := NewStateDB("", path, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	var ws []Wurd
+	typ := ReflectTypeM(Wurd{})
+	if it, err := db.RestoreIter(typ); err == nil {
+		for {
+			weird := new(Wurd)
 			_, ok := it.Next(weird)
 			if !ok {
 				break
@@ -104,7 +152,11 @@ func WriteFullAndDelta(path string, t *testing.T) {
 		return
 	}
 
-	t_str := ReflectType(Weird{})
+	t_str := ReflectTypeM(&Weird{})
+	fmt.Println("type: " + t_str)
+
+	fmt.Println("Type: " + t_str)
+
 	resp := make(chan *KeyType)
 	n := 0
 	var wg sync.WaitGroup
@@ -114,6 +166,7 @@ func WriteFullAndDelta(path string, t *testing.T) {
 		n++
 		go func(m *Weird, wg *sync.WaitGroup) {
 			kt, err := db.Insert(m)
+			fmt.Println(kt)
 			if err != nil {
 				wg.Done()
 				resp <- kt

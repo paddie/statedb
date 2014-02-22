@@ -66,11 +66,11 @@ func ReflectType(i interface{}) string {
 	if i == nil {
 		return ""
 	}
-	val := Indirect(reflect.ValueOf(i))
+	val := reflect.ValueOf(i)
 	return reflectType(val)
 }
 
 // Return the unique type if for any object
 func reflectType(val reflect.Value) string {
-	return val.Type().String()
+	return Indirect(val).Type().String()
 }

@@ -7,7 +7,7 @@ import (
 )
 
 type Key struct {
-	IntID    int64
+	IntID    int
 	StringID string
 }
 
@@ -27,7 +27,7 @@ func NewStringKey(id string) (*Key, error) {
 	return &Key{0, id}, nil
 }
 
-func NewIntKey(id int64) (*Key, error) {
+func NewIntKey(id int) (*Key, error) {
 	if id <= 0 {
 		return nil, fmt.Errorf("Key: id <= 0: %d", id)
 	}
@@ -86,7 +86,7 @@ func reflectKey(val reflect.Value) (*Key, error) {
 	case reflect.String:
 		return NewStringKey(id_field.String())
 	case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64:
-		return NewIntKey(id_field.Int())
+		return NewIntKey(int(id_field.Int()))
 	default:
 		return nil, fmt.Errorf("Field 'ID' is of invalid type: %v\n", id_field.Kind())
 	}

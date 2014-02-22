@@ -25,7 +25,7 @@ type Iterator struct {
 	db      *StateDB
 }
 
-func (it *Iterator) Next(imm Checkpointable) (*KeyType, bool) {
+func (it *Iterator) Next(imm interface{}) (*KeyType, bool) {
 
 	if it == nil {
 		return nil, false
@@ -47,37 +47,40 @@ func (it *Iterator) Next(imm Checkpointable) (*KeyType, bool) {
 	}
 	it.i++
 
-	mut := imm.Mutable()
-	if mut == nil {
-		return entry.kt, true
+	m, ok := imm.(Mutable)
+	if ok {
+		mut := m.Mutable()
+		if mut == nil {
+			return entry.kt, true
+		}
+
+		if entry.mut == nil {
+			panic("there should be something here!")
+			return entry.kt, true
+		}
+
+		mutv := reflect.ValueOf(mut)
+		if err := validateMutable(mutv); err != nil {
+			return nil, false
+		}
+
+		// update the v with the new pointer value
+		entry.mut.v = mutv
+
+		// mutable
+		buff = bytes.NewBuffer(entry.mut.Val)
+		dec = gob.NewDecoder(buff)
+
+		if err := dec.Decode(mut); err != nil {
+			fmt.Println(err)
+			return nil, false
+		}
 	}
-
-	if entry.mut == nil {
-		panic("there should be something here!")
-		return entry.kt, true
-	}
-
-	mutv := reflect.ValueOf(mut)
-	if err := validateMutable(mutv); err != nil {
-		return nil, false
-	}
-
-	// update the v with the new pointer value
-	entry.mut.v = mutv
-
-	// mutable
-	buff = bytes.NewBuffer(entry.mut.Val)
-	dec = gob.NewDecoder(buff)
-
-	if err := dec.Decode(mut); err != nil {
-		fmt.Println(err)
-		return nil, false
-	}
-
 	return entry.kt, true
 }
 
 func Decode(val []byte, i interface{}) error {
+
 	buff := bytes.NewBuffer(val)
 	dec := gob.NewDecoder(buff)
 
@@ -87,17 +90,21 @@ func Decode(val []byte, i interface{}) error {
 	return nil
 }
 
-func (db *StateDB) RestoreSingle(imm, mut interface{}) error {
+func (db *StateDB) RestoreSingle(imm interface{}) error {
 
-	t_str := ReflectType(imm)
+	typ := ReflectTypeM(imm)
 
-	states, ok := db.immutable[t_str]
+	states, ok := db.immutable[typ]
 	if !ok {
-		return fmt.Errorf("StateDB.Restore: No object of type '%s' found", t_str)
+		return fmt.Errorf("StateDB.Restore: No object of type '%s' found", typ)
 	}
 
 	if len(states) != 1 {
-		return errors.New("There are more than one item of this type, use RestoreIter to restore them all")
+		return errors.New("RestoreSingle: More than one item of type " + typ)
+	}
+
+	if len(states) == 0 {
+		return errors.New("RestoreSigne: No item of type " + typ)
 	}
 
 	for _, s := range states {
@@ -106,8 +113,15 @@ func (db *StateDB) RestoreSingle(imm, mut interface{}) error {
 		if err := Decode(s.Val, imm); err != nil {
 			return err
 		}
+
+		m, ok := imm.(Mutable)
+		if !ok {
+			return nil
+		}
+
 		ms := db.mutable.lookup(kt)
 		if ms != nil {
+			mut := m.Mutable()
 			mutv := reflect.ValueOf(mut)
 			if err := validateMutable(mutv); err != nil {
 				return err
@@ -115,9 +129,9 @@ func (db *StateDB) RestoreSingle(imm, mut interface{}) error {
 			ms.v = mutv
 			Decode(ms.Val, mut)
 		}
+		// break after one restore..
 		break
 	}
-
 	return nil
 }
 

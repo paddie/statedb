@@ -12,7 +12,7 @@ type KeyType struct {
 	T string // Type of the object
 	// mut      *State // link to the dynamic part
 	// Mutable  bool // does the state contain mutable data
-	verified bool // for NewKeyType objects, this is false. It is only true if the objet was returned by the insert or after an update.
+	// verified bool // for NewKeyType objects, this is false. It is only true if the objet was returned by the insert or after an update.
 	// db       *StateDB
 }
 
@@ -83,7 +83,7 @@ func (k *KeyType) IsValid() bool {
 }
 
 // Generate a integer key
-func NewIntKeyType(intID int64, typeStr string) (*KeyType, error) {
+func NewIntKeyType(intID int, typeStr string) (*KeyType, error) {
 
 	if typeStr == "" {
 		return nil, fmt.Errorf("Key: cannot contain an empty type")
@@ -127,7 +127,7 @@ func (k *KeyType) StringID() string {
 }
 
 // return the integer part of the key
-func (k *KeyType) IntID() int64 {
+func (k *KeyType) IntID() int {
 	return k.K.IntID
 }
 

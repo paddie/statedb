@@ -11,7 +11,6 @@ import (
 	"fmt"
 	"log"
 	"os"
-	// "path"
 )
 
 func (db *StateDB) checkpoint() error {
