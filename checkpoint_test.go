@@ -7,6 +7,7 @@ import (
 	"runtime"
 	"testing"
 	// "time"
+	"sync"
 )
 
 type Main struct {
@@ -78,6 +79,11 @@ func RestoreCheckpoint(path string, t *testing.T) {
 	} else {
 		t.Fatal(err)
 	}
+
+	if err = db.Checkpoint(); err != nil {
+		t.Fatal(err)
+	}
+
 	fmt.Printf("restored: %#v\n", ws)
 }
 
@@ -87,25 +93,29 @@ func WriteFullAndDelta(path string, t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if db.Restored {
+	if db.restored {
 		return
 	}
 
 	t_str := ReflectType(Weird{})
 	resp := make(chan *KeyType)
 	n := 0
+	var wg sync.WaitGroup
+
 	for _, m := range weird {
+		wg.Add(1)
 		n++
-		go func(m *Weird) {
+		go func(m *Weird, wg *sync.WaitGroup) {
 			kt, err := db.Insert(m, &m.m)
 			if err != nil {
 				t.Fatal(err)
 			}
 			m.m.K = kt.StringID() + "test"
+			wg.Done()
 			resp <- kt
-		}(m)
+		}(m, &wg)
 	}
-	fmt.Println(n)
+	wg.Wait()
 	for _, _ = range weird {
 		// for i := 0; i < n; i++ {
 		kt := <-resp
@@ -125,7 +135,9 @@ func WriteFullAndDelta(path string, t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			db.Remove(kt)
+			if err := db.Remove(kt); err != nil {
+				t.Fatal(err)
+			}
 
 			if err := db.Checkpoint(); err != nil {
 				t.Fatal(err)
@@ -141,7 +153,10 @@ func WriteFullAndDelta(path string, t *testing.T) {
 	if db.immutable.contains(kt) {
 		t.Error("kt " + kt.String() + " was not deleted.")
 	}
-
+	// is not normally possible
+	db.incrementalCheckpoint()
+	db.incrementalCheckpoint()
+	db.incrementalCheckpoint()
 	db.Commit()
 }
 

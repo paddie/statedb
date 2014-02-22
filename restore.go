@@ -5,12 +5,12 @@ import (
 	"encoding/gob"
 	"errors"
 	"fmt"
-	"io"
-	"io/ioutil"
+	// "io"
+	// "io/ioutil"
 	"log"
 	"os"
 	"reflect"
-	"strconv"
+	// "strconv"
 )
 
 type entry struct {
@@ -51,10 +51,16 @@ func (it *Iterator) Next(imm, mut interface{}) (*KeyType, bool) {
 		return entry.kt, true
 	}
 
+	if entry.mut == nil {
+		panic("there should be something here!")
+		return entry.kt, true
+	}
+
 	mutv := reflect.ValueOf(mut)
 	if err := validateMutable(mutv); err != nil {
 		return nil, false
 	}
+
 	// update the v with the new pointer value
 	entry.mut.v = mutv
 
@@ -139,79 +145,51 @@ func (db *StateDB) RestoreIter(typeID string) (*Iterator, error) {
 	return &Iterator{entries: entries}, nil
 }
 
-// func (db *StateDB) RestoreMutable(kt *KeyType, mut interface{}) error {
-
-// 	mv_ptr := reflect.ValueOf(mut)
-
-// 	if mv_ptr.Kind() != reflect.Ptr {
-// 		return fmt.Errorf("StateDB.RestoreMutable: %s is not a pointer to a state", mv_ptr.String())
-// 	}
-
-// 	mv := mv_ptr.Elem()
-
-// 	if !mv.CanSet() {
-// 		return fmt.Errorf("StateDB.RestoreMutable: %s is not settable", mv.String())
-// 	}
-
-// 	s := db.mutable.lookup(kt)
-// 	if s == nil {
-// 		return fmt.Errorf("StateDB.RestoreMutable: No mutable state exists for keytype = %s", kt.String())
-// 	}
-// 	if s.Val == nil {
-// 		return fmt.Errorf("StateDB.RestoreMutable: There is nothing to restore for keytype %s", kt.String())
-// 	}
-// 	s.v = mv_ptr
-
-// 	buff := bytes.NewBuffer(s.Val)
-// 	dec := gob.NewDecoder(buff)
-
-// 	return dec.DecodeValue(mv)
-// }
-
-func (ctx *Context) Restore(db *StateDB) error {
+func (ctx *Context) RestoreStateDB(db *StateDB) error {
 
 	if db == nil {
 		return errors.New("StateDB has not been initialized yet")
 	}
 
-	if !IsValidCheckpoint(ctx.cpt_dir) {
-		return errors.New("StateDB.Restore: invalid checkpoint directory: " + ctx.cpt_dir)
+	if !IsValidCheckpoint(ctx.CheckpointDir()) {
+		return errors.New("StateDB.Restore: invalid checkpoint directory: " + ctx.CheckpointDir())
 	}
 
 	imm, err := ctx.restoreImmutable()
 	if err != nil {
-		log.Println("StateDB.Restore: Failed to restore immutable from " + ctx.cpt_dir)
+		log.Println("StateDB.Restore: Failed to restore immutable from " + ctx.CheckpointDir())
 		return err
 	}
 
 	// restore mutable part of the checkpoint
-	mut, mut_id, err := ctx.restoreMutable()
+	mut, mcnt, dcnt_max, err := ctx.loadMutable()
 	if err != nil {
-		log.Println("StateDB.Restore: Failed to restore mutable from " + ctx.cpt_dir)
+		log.Println("StateDB.Restore: Failed to restore mutable from " + ctx.CheckpointDir())
 		return err
 	}
+
+	ctx.mcnt = mcnt
+	ctx.dcnt = dcnt_max
 
 	db.immutable = imm
 	db.mutable = mut
 
-	// restore and replay the delta commits
-	deltas, delta_id, err := ctx.restoreDelta()
-	if err != nil {
-		log.Println("StateDB.Restore: No delas found")
+	// there are no delta checkpoints to log
+	if dcnt_max == 0 {
 		return nil
 	}
 
-	// if the delta id is different from the mutable id, something has gone wrong.
-	if mut_id != delta_id {
-		return fmt.Errorf("StateDB.Restore: mutable_id '%d' != '%d' delta_id. A delta commit was incomplete, or the delta.cpt file is corrupt.\n", mut_id, delta_id)
+	// restore and replay the delta commits
+	deltas, err := ctx.loadDeltas(dcnt_max)
+	if err != nil {
+		log.Println("StateDB.Restore: " + err.Error())
+		return nil
 	}
-
-	// fmt.Println("Restored immutable and mutable from ", ctx_dir, ". Proceeding with delta..")
 
 	if err := db.replayDeltas(deltas); err != nil {
 		return err
 	}
-
+	db.restored = true
 	return nil
 }
 
@@ -233,57 +211,59 @@ func (ctx *Context) restoreImmutable() (ImmKeyTypeMap, error) {
 	return immutable, nil
 }
 
-func (ctx *Context) restoreMutable() (MutKeyTypeMap, int, error) {
+func (ctx *Context) loadMutable() (MutKeyTypeMap, int, int, error) {
 
-	path := ctx.MutablePath()
+	mutables := listMutableCheckpoints(ctx.CheckpointDir())
+
+	// ctx.mcnt = probeMCNT(ctx.CheckpointDir())
+	// // if no mcnt is detected, no mutable checkpoint was committed.
+	if len(mutables) == 0 {
+		return nil, 0, 0, nil
+	}
+	path := mutables[len(mutables)-1]
 
 	file, err := os.Open(path)
 	if err != nil {
-		return nil, 0, err
+		return nil, 0, 0, err
 	}
 
 	mut := &mutableID{}
 	enc := gob.NewDecoder(file)
 	if err = enc.Decode(mut); err != nil {
-		return nil, 0, err
+		return nil, 0, 0, err
 	}
 
-	return mut.Mutable, mut.DeltaDiff, nil
+	return mut.Mutable, mut.MCNT, mut.DCNT, nil
 }
 
-func (ctx *Context) restoreDelta() ([]DeltaTypeMap, int, error) {
+func (ctx *Context) loadDeltas(max_d int) ([]DeltaTypeMap, error) {
 
-	path := ctx.DeltaPath()
-
-	file, err := os.Open(path)
-	if err != nil {
-		return nil, 0, err
+	d_paths := listDeltaCheckpoints(ctx.CheckpointDir())
+	if len(d_paths) == 0 {
+		return nil, nil
 	}
-	dec := gob.NewDecoder(file)
 
-	// initial values
-	var deltas []DeltaTypeMap
-	id := 0
-
-	// the object to decode into
-	mut := new(deltaID)
-
-	// keep reading until it fails
-	for {
-		mut = new(deltaID)
-		if err = dec.Decode(mut); err != nil {
-			if err != io.EOF {
-				continue
-			}
-			break
+	var ds []DeltaTypeMap
+	dcnt := 0
+	for _, path := range d_paths {
+		d := new(deltaID)
+		file, err := os.Open(path)
+		if err != nil {
+			return nil, err
 		}
-		id = mut.DeltaDiff
-		deltas = append(deltas, mut.Delta)
+		dec := gob.NewDecoder(file)
+		if err = dec.Decode(d); err != nil {
+			return nil, err
+		}
+		ds = append(ds, d.Delta)
+		dcnt = d.DCNT
 	}
 
-	log.Printf("Read %d incremental checkpoints\n", len(deltas))
+	if dcnt != max_d {
+		return nil, fmt.Errorf("delta.DCNT %d does not match mutable.DCNT %d", dcnt, max_d)
+	}
 
-	return deltas, id, nil
+	return ds, nil
 }
 
 func (db *StateDB) replayDeltas(deltas []DeltaTypeMap) error {

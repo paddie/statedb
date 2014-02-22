@@ -7,22 +7,22 @@ import (
 	"testing"
 )
 
-var ctx_dir string
+var ctxDir string
 
 func init() {
 
-	ctx_dir = "ctx_test"
+	ctxDir = "ctx_test"
 
 }
 
 // Make sure that the checkpoint directory is created with the context
 func TestContextInit(t *testing.T) {
 
-	t.Skip("skipping for now..")
+	// t.Skip("skipping for now..")
 
 	exp := 4
 
-	cptid := path.Join(ctx_dir, fmt.Sprintf("%010d", exp))
+	cptid := path.Join(ctxDir, fmt.Sprintf("%010d", exp))
 
 	// make sure there is no existing ctx_test dir
 	_ = os.RemoveAll(cptid)
@@ -30,20 +30,21 @@ func TestContextInit(t *testing.T) {
 	// Now create it again
 	err := CreateDir(cptid)
 	if err != nil {
-		t.Error(err)
+		t.Fatal(err)
 	}
 
-	ctx, restore, err := NewContext("", ctx_dir, "")
+	ctx, err := NewContext("", ctxDir, "")
 	if err != nil {
-		t.Error(err)
+		t.Fatal(err)
+
 	}
 
-	if restore {
-		t.Error("Restore should not have been signaled at this point")
+	if !ctx.previous {
+		t.Fatal("Restore should not have been signaled at this point")
 	}
 
-	if ctx.cpt_id != 0 {
-		t.Errorf("Incorrect cpt_id: %d", ctx.cpt_id)
+	if ctx.rcid != 4 {
+		t.Errorf("Incorrect cpt_id: %d", ctx.rcid)
 	}
 
 }

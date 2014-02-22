@@ -19,23 +19,47 @@ const (
 )
 
 type StateDB struct {
-	Restored   bool          // has statedb just been restored
-	consistent bool          // SignalConsistent() == true
-	ctx        *Context      // cpt and restore information
-	immutable  ImmKeyTypeMap // immutable states
-	delta      DeltaTypeMap  // static state delta
-	mutable    MutKeyTypeMap // mutable state
-	cpt_chan   chan time.Time
-	sync_chan  chan *Msg
-	cpt_notice bool
-	op_chan    chan *StateOperation
-	quit       chan chan error
-	sync.RWMutex
+	restored bool     // has statedb just been restored
+	ready    bool     // have all mutable objects been restored?
+	ctx      *Context // cpt and restore information
+	// State databases
+	immutable ImmKeyTypeMap // immutable states
+	delta     DeltaTypeMap  // static state delta
+	mutable   MutKeyTypeMap // mutable state
+	// Synchronization channels
+	op_chan      chan *StateOperation // handles insert and remove operations
+	quit         chan chan error      // shutdown signals
+	cpt_chan     chan time.Time       // checkpoint signals are sent on this channel
+	cpt_notice   bool                 // true after a signal has come in on cpt_chan
+	sync_chan    chan *Msg            // consistent state signals are sent on this channel
+	sync.RWMutex                      // for synchronizing things that don't need the channels..
 }
 
-func NewStateDB(bucket, dir, suffix string) (*StateDB, error) {
+func (db *StateDB) readyCheckpoint() bool {
 
-	ctx, restore, err := NewContext(bucket, dir, suffix)
+	db.Lock()
+	defer db.Unlock()
+
+	if db.ready || !db.restored {
+		return true
+	}
+
+	for _, vt := range db.mutable {
+		for _, vs := range vt {
+			if vs.v.IsValid() {
+				return false
+			}
+		}
+	}
+	// every mutable object has been restored
+	db.ready = true
+	return true
+
+}
+
+func NewStateDB(volume, dir, suffix string) (*StateDB, error) {
+
+	ctx, err := NewContext(volume, dir, suffix)
 	if err != nil {
 		return nil, err
 	}
@@ -52,20 +76,17 @@ func NewStateDB(bucket, dir, suffix string) (*StateDB, error) {
 	}
 	go db.StateSelect()
 	// No need to restore
-	if !restore {
+	if !ctx.previous {
 		return db, nil
 	}
 
 	// fmt.Println("StateDB: must be restored!")
-	log.Println("StateDB: Previous checkpoint detected. Attempting to restore..")
+	log.Println("StateDB: Previous checkpoint %s. Attempting to restore..", ctx.CheckpointDir())
 
-	if err = db.ctx.Restore(db); err != nil {
+	if err = db.ctx.RestoreStateDB(db); err != nil {
 		return nil, err
 	}
-
-	db.ctx.restore = false
-
-	db.Restored = true
+	db.restored = true
 
 	return db, nil
 }
@@ -132,6 +153,10 @@ func (db *StateDB) StateSelect() {
 	for {
 		select {
 		case msg := <-db.sync_chan:
+			// check if all mutable objects have been restored
+			if !db.readyCheckpoint() {
+				msg.err <- errors.New("StateDB.Checkpoint: Some objects have not been restored")
+			}
 			// if the checkpoint is not forced or
 			// the monitor has not given a cpt_notice
 			// the sync simply returns
