@@ -25,7 +25,7 @@ type Iterator struct {
 	db      *StateDB
 }
 
-func (it *Iterator) Next(imm, mut interface{}) (*KeyType, bool) {
+func (it *Iterator) Next(imm Checkpointable) (*KeyType, bool) {
 
 	if it == nil {
 		return nil, false
@@ -47,6 +47,7 @@ func (it *Iterator) Next(imm, mut interface{}) (*KeyType, bool) {
 	}
 	it.i++
 
+	mut := imm.Mutable()
 	if mut == nil {
 		return entry.kt, true
 	}

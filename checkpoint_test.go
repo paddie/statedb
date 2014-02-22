@@ -26,6 +26,12 @@ type Weird struct {
 	m  w_mut
 }
 
+func (w *Weird) Mutable() interface{} {
+
+	return w.m
+
+}
+
 var main []*Main
 
 var weird []*Weird
@@ -69,11 +75,12 @@ func RestoreCheckpoint(path string, t *testing.T) {
 	if it, err := db.RestoreIter(ReflectType(Weird{})); err == nil {
 		for {
 			weird := new(Weird)
-			_, ok := it.Next(weird, &weird.m)
+			_, ok := it.Next(weird)
 			if !ok {
 				break
 			}
 
+			fmt.Println(weird)
 			ws = append(ws, *weird)
 		}
 	} else {
@@ -106,8 +113,10 @@ func WriteFullAndDelta(path string, t *testing.T) {
 		wg.Add(1)
 		n++
 		go func(m *Weird, wg *sync.WaitGroup) {
-			kt, err := db.Insert(m, &m.m)
+			kt, err := db.Insert(m)
 			if err != nil {
+				wg.Done()
+				resp <- kt
 				t.Fatal(err)
 			}
 			m.m.K = kt.StringID() + "test"
@@ -119,6 +128,9 @@ func WriteFullAndDelta(path string, t *testing.T) {
 	for _, _ = range weird {
 		// for i := 0; i < n; i++ {
 		kt := <-resp
+		if kt == nil {
+			continue
+		}
 		if kt.StringID() == "3" {
 			if err := db.Checkpoint(); err != nil {
 				t.Fatal(err)

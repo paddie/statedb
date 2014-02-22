@@ -46,7 +46,8 @@ func (db *StateDB) readyCheckpoint() bool {
 
 	for _, vt := range db.mutable {
 		for _, vs := range vt {
-			if vs.v.IsValid() {
+			if !vs.v.IsValid() {
+				fmt.Printf("Not valid: %#v", *vs)
 				return false
 			}
 		}
@@ -54,7 +55,6 @@ func (db *StateDB) readyCheckpoint() bool {
 	// every mutable object has been restored
 	db.ready = true
 	return true
-
 }
 
 func NewStateDB(volume, dir, suffix string) (*StateDB, error) {
@@ -155,6 +155,9 @@ func (db *StateDB) StateSelect() {
 		case msg := <-db.sync_chan:
 			// check if all mutable objects have been restored
 			if !db.readyCheckpoint() {
+
+				fmt.Printf("%#v", db.mutable)
+
 				msg.err <- errors.New("StateDB.Checkpoint: Some objects have not been restored")
 			}
 			// if the checkpoint is not forced or

@@ -50,14 +50,18 @@ func (db *StateDB) Remove(kt *KeyType) error {
 	return <-err_chan
 }
 
-func (db *StateDB) Insert(imm, mut interface{}) (*KeyType, error) {
+type Checkpointable interface {
+	Mutable() interface{}
+}
+
+func (db *StateDB) Insert(i Checkpointable) (*KeyType, error) {
 
 	// we allow for the mutable state to be <nil>
-	if imm == nil {
+	if i == nil {
 		return nil, errors.New("StateDB: an inserted immutable state cannot be <nil>")
 	}
 
-	immv := Indirect(reflect.ValueOf(imm))
+	immv := Indirect(reflect.ValueOf(i))
 
 	kt, err := reflectKeyType(immv)
 	if err != nil {
@@ -78,7 +82,9 @@ func (db *StateDB) Insert(imm, mut interface{}) (*KeyType, error) {
 		err:    err_chan,
 	}
 	// if the mutable state is nil, we also validate and encode it
+	mut := i.Mutable()
 	if mut != nil {
+		fmt.Println("Inserting Mutable part of " + kt.String())
 		mutv := reflect.ValueOf(mut)
 		if err := validateMutable(mutv); err != nil {
 			return nil, err
