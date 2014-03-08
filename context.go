@@ -14,9 +14,9 @@ import (
 	"sync"
 )
 
-// // Volume: Amazon bucket identifier or Volume
-// // Path:   Path to file in bucket
-// // Suffix:  Combination of Machine and application maybe?
+// Volume: Amazon bucket identifier or Volume
+// Path:   Path to file in bucket
+// Suffix: Combination of Machine and application maybe?
 type ctx_dir struct {
 	volume, dir, suffix string // required for committing and recovering state
 	full                string // <bucket>/<dir>/<suffix>
@@ -44,15 +44,6 @@ func Newctx_dir(volume, dir, suffix string) (*ctx_dir, error) {
 		full:   full,
 	}, nil
 }
-
-// type ctx_stats struct {
-// 	LastCpt          time.Time
-// 	Emax, Emin, Eavg time.Duration // Encoding stats
-// 	Dmax, Dmin, Davg time.Duration // Decoding stats
-// 	Rmax, Rmin, Ravg time.Duration // Reading stats
-// 	Wmax, Wmin, Wavg time.Duration // Writing stats
-// 	TMax, TMin, TAvg time.Duration // Total stats
-// }
 
 type Context struct {
 	dir       ctx_dir
@@ -98,8 +89,8 @@ func NewContext(volume, dir, suffix string) (*Context, error) {
 	return ctx, nil
 }
 
-// // If any existing checkpoints exist, a restore is signalled.
-// // If no previous checkpoints exist, the checkpoint dir is created.
+// If any existing checkpoints exist, a restore is signalled.
+// If no previous checkpoints exist, the checkpoint dir is created.
 func (ctx *Context) initContext() error {
 	// make sure that the checkpoint dir exists
 	if !IsDir(ctx.dir.full) {

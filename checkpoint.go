@@ -71,6 +71,7 @@ func (db *StateDB) fullCheckpoint() error {
 	return nil
 }
 
+// Clean up after a relative checkpoint
 func (ctx *Context) PostRelative(newCTX *Context) {
 	if newCTX.committed {
 
@@ -90,6 +91,7 @@ func (ctx *Context) PostRelative(newCTX *Context) {
 	os.RemoveAll(newCTX.CheckpointDir())
 }
 
+// Clean up after an incremental checkpoint
 func (ctx *Context) PostIncremental(newCTX *Context) {
 	if newCTX.committed {
 		fmt.Printf("Successful incremental mcnt: %d. Deleting\n\t%s\n", newCTX.mcnt, ctx.MutablePath())
@@ -131,34 +133,24 @@ func (ctx *Context) commitFullCheckpoint(db *StateDB) error {
 	}
 
 	if err := tmp.commitImmutable(db.immutable); err != nil {
-		// 1. delete new checkpoint dir
-		// 2. decrease checkpoint id
 		return err
 	}
 
 	if err := tmp.commitMutable(db.mutable); err != nil {
-		// 1. delete new checkpoint dir
-		// 2. decrease checkpoint id
 		return err
 	}
 
 	tmp.committed = true
 
-	// replace original context if commit succeeded
-	// - eliminates the need for playback in case of error
-
 	return nil
 }
 
-// Every time an Incremental checkpoint is generated, the delta is appended to the
+// Every time an Incremental Checkpoint is generated, the delta is appended to the
 // 'delta.cpt' file. The mutable table is committed in its full (but might use a swap file at some point).
 // - Before an incremental checkpoint can be performed, a reference full backup
 //   MUST precede it.
 // - If there is no reference checkpoint, it will return an error.
 func (ctx *Context) commitIncrementalCpt(db *StateDB) error {
-	// if ctx.restored {
-	// 	return errors.New("Context: A previous checkpoint has not been restored. Checkpoint would overwrite previous checkpoint.")
-	// }
 
 	if ctx.rcid == 0 {
 		return errors.New("Context: A *full* checkpoint MUST be committed prior to any delta checkpoint")

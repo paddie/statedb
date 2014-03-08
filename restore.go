@@ -186,7 +186,6 @@ func (ctx *Context) RestoreStateDB(db *StateDB) error {
 		log.Println("StateDB.Restore: Failed to restore mutable from " + ctx.CheckpointDir())
 		return err
 	}
-
 	ctx.mcnt = mcnt
 	ctx.dcnt = dcnt_max
 

@@ -198,23 +198,14 @@ func (db *StateDB) StateSelect() {
 	}
 }
 
-// func (db *StateDB) restoreUpdate(kt *KeyType, mut *MutState) error {
-
-// 	if !db.mutable.contains(kt) {
-// 		return errors.New("Update: Cannot update non-existant mutable " + kt.String())
-// 	}
-
-// 	db.insertMutable(kt, mut)
-
-// 	return nil
-// }
-
 func (db *StateDB) insert(kt *KeyType, imm []byte, mut *MutState) error {
+
 	if db.immutable.contains(kt) {
 		return errors.New("KeyType " + kt.String() + " already exists")
 	}
 
 	db.insertImmutable(kt, imm)
+
 	if mut != nil {
 		db.insertMutable(kt, mut)
 	}
@@ -225,7 +216,8 @@ func (db *StateDB) insert(kt *KeyType, imm []byte, mut *MutState) error {
 func (db *StateDB) remove(kt *KeyType) error {
 
 	if !db.immutable.contains(kt) {
-		return fmt.Errorf("StateDB.Remove: KeyType %s does not exist", kt.String())
+		return fmt.Errorf("StateDB.Remove: KeyType %s does not exist",
+			kt.String())
 	}
 
 	db.immutable.remove(kt)

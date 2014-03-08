@@ -35,10 +35,6 @@ func NewIntKey(id int) (*Key, error) {
 	return &Key{id, ""}, nil
 }
 
-func (kt *KeyType) Key() *Key {
-	return &kt.K
-}
-
 func (k *Key) IsValid() bool {
 	if k.StringID == "" && k.IntID == 0 {
 		return false
