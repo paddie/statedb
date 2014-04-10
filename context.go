@@ -5,7 +5,7 @@ import (
 	// "errors"
 	"fmt"
 	"log"
-	// "time"
+	"time"
 	// "os"
 	"io/ioutil"
 	"path"
@@ -52,6 +52,11 @@ type Context struct {
 	rcid      int  // reference checkpoint id - the id of the current reference checkpoint
 	dcnt      int  // delta count - the number of delta checkpoints since the last reference checkpoint
 	mcnt      int  // mutable checkpoints since the last reference checkpoint
+	// statistics
+	recoveryTime  time.Duration // time to recover from this context
+	mutableTime   time.Duration // time to ciommit the latest mutable checkpoint
+	immutableTime time.Duration // time to commit the latest immutable checkpoint
+	deltaTime     time.Duration // time it took to commit the latest delta checkpoint
 	// stats  ctx_stats
 	// cpt_id     int    // the id of the last full update
 	// delta_diff int    // number of delta checkpoints relative to full checkpoint
@@ -112,7 +117,6 @@ func (ctx *Context) newIncrementalContext() *Context {
 }
 
 func (ctx *Context) newRelativeContext() *Context {
-
 	tmp := *ctx
 	// increase DCNT if there is something in the delta log
 	tmp.rcid++

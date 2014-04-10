@@ -72,12 +72,11 @@ func NewStateDB(volume, dir, suffix string) (*StateDB, error) {
 		quit:      make(chan chan error),
 	}
 	go db.StateSelect()
-	// No need to restore
+	// Check if we need to restore
 	if !ctx.previous {
 		return db, nil
 	}
 
-	// fmt.Println("StateDB: must be restored!")
 	log.Println("StateDB: Previous checkpoint %s. Attempting to restore..", ctx.CheckpointDir())
 
 	if err = db.ctx.RestoreStateDB(db); err == nil {
@@ -157,11 +156,10 @@ func (db *StateDB) StateSelect() {
 		select {
 		case msg := <-db.sync_chan:
 			// check if all mutable objects have been restored
+			// - only needs to be checked once, but is check subsequent times
 			if !db.readyCheckpoint() {
-
 				fmt.Printf("%#v", db.mutable)
-
-				msg.err <- errors.New("StateDB.Checkpoint: Some objects have not been restored")
+				msg.err <- errors.New("StateDB.Checkpoint: Some objects have not been restored after crash")
 			}
 			// if the checkpoint is not forced or
 			// the monitor has not given a cpt_notice
@@ -209,7 +207,6 @@ func (db *StateDB) insert(kt *KeyType, imm []byte, mut *MutState) error {
 	if mut != nil {
 		db.insertMutable(kt, mut)
 	}
-
 	return nil
 }
 

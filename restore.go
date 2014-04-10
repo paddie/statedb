@@ -99,9 +99,9 @@ func (db *StateDB) RestoreSingle(imm interface{}) error {
 		return fmt.Errorf("StateDB.Restore: No object of type '%s' found", typ)
 	}
 
-	if len(states) != 1 {
-		return errors.New("RestoreSingle: More than one item of type " + typ)
-	}
+	// if len(states) != 1 {
+	// 	return errors.New("RestoreSingle: More than one item of type " + typ)
+	// }
 
 	if len(states) == 0 {
 		return errors.New("RestoreSigne: No item of type " + typ)

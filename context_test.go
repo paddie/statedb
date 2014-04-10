@@ -10,9 +10,7 @@ import (
 var ctxDir string
 
 func init() {
-
 	ctxDir = "ctx_test"
-
 }
 
 // Make sure that the checkpoint directory is created with the context

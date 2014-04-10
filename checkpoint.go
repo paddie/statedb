@@ -1,11 +1,6 @@
 package statedb
 
 import (
-	// "io"
-	// "buffer"
-	// "io/ioutil"
-	// "strconv"
-
 	"encoding/gob"
 	"errors"
 	"fmt"
@@ -14,11 +9,14 @@ import (
 )
 
 func (db *StateDB) checkpoint() error {
+	// only checkpoint if something has been added to statedb
 	if len(db.immutable) == 0 {
 		log.Println("StateDB: There is nothing to checkpoint")
 		return nil
 	}
 
+	// Stupid heuristic for when to take a zero or delta checkpoint
+	// TODO: cost comparison of (delta vs. zero)
 	if db.ctx.rcid == 0 || db.ctx.dcnt > 5 {
 		return db.fullCheckpoint()
 	}
@@ -27,15 +25,12 @@ func (db *StateDB) checkpoint() error {
 }
 
 func (db *StateDB) incrementalCheckpoint() error {
-
 	if len(db.delta) == 0 && len(db.mutable) == 0 {
 		return nil
 	}
-
 	if err := db.ctx.commitIncrementalCpt(db); err != nil {
 		return err
 	}
-
 	// reset delta after an incremental checkpoint
 	db.delta = nil
 
@@ -46,14 +41,6 @@ func (db *StateDB) incrementalCheckpoint() error {
 // - Assumes that the system is in a consistent state
 // - Checkpoints the Immutable and Mutable states, and empties the delta log.
 func (db *StateDB) fullCheckpoint() error {
-
-	// db.Lock()
-	// defer db.Unlock()
-
-	// if !db.consistent {
-	// 	return errors.New("Context: StateDB is not in a consistent state. Use Consistent() to signal that to the database")
-	// }
-
 	// nothing to commit, but not an error
 	if len(db.immutable) == 0 {
 		log.Println("StateDB: There is nothing to commit")
