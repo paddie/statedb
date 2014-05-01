@@ -7,8 +7,8 @@ import (
 	"fmt"
 	// "io"
 	// "io/ioutil"
-	"log"
-	"os"
+	// "log"
+	// "os"
 	"reflect"
 	// "strconv"
 )
@@ -60,7 +60,7 @@ func (it *Iterator) Next(imm interface{}) (*KeyType, bool) {
 		}
 
 		mutv := reflect.ValueOf(mut)
-		if err := validateMutable(mutv); err != nil {
+		if err := validateMutableEntry(mutv); err != nil {
 			return nil, false
 		}
 
@@ -99,10 +99,6 @@ func (db *StateDB) RestoreSingle(imm interface{}) error {
 		return fmt.Errorf("StateDB.Restore: No object of type '%s' found", typ)
 	}
 
-	// if len(states) != 1 {
-	// 	return errors.New("RestoreSingle: More than one item of type " + typ)
-	// }
-
 	if len(states) == 0 {
 		return errors.New("RestoreSigne: No item of type " + typ)
 	}
@@ -126,7 +122,7 @@ func (db *StateDB) RestoreSingle(imm interface{}) error {
 		if ms != nil {
 			mut := m.Mutable()
 			mutv := reflect.ValueOf(mut)
-			if err := validateMutable(mutv); err != nil {
+			if err := validateMutableEntry(mutv); err != nil {
 				return err
 			}
 			ms.v = mutv
@@ -162,190 +158,4 @@ func (db *StateDB) RestoreIter(typeID string) (*Iterator, error) {
 	}
 
 	return &Iterator{entries: entries}, nil
-}
-
-func (ctx *Context) RestoreStateDB(db *StateDB) error {
-
-	if db == nil {
-		return errors.New("StateDB has not been initialized yet")
-	}
-
-	if !IsValidCheckpoint(ctx.CheckpointDir()) {
-		return errors.New("StateDB.Restore: invalid checkpoint directory: " + ctx.CheckpointDir())
-	}
-
-	imm, err := ctx.restoreImmutable()
-	if err != nil {
-		log.Println("StateDB.Restore: Failed to decode immutable checkpoint from " + ctx.CheckpointDir())
-		return err
-	}
-
-	// restore mutable part of the checkpoint
-	mut, mcnt, dcnt_max, err := ctx.loadMutable()
-	if err != nil {
-		log.Println("StateDB.Restore: Failed to restore mutable from " + ctx.CheckpointDir())
-		return err
-	}
-	ctx.mcnt = mcnt
-	ctx.dcnt = dcnt_max
-
-	db.immutable = imm
-	db.mutable = mut
-
-	db.restored = true
-
-	// there are no delta checkpoints to log
-	if dcnt_max == 0 {
-		return nil
-	}
-
-	// restore and replay the delta commits
-	deltas, err := ctx.loadDeltas(dcnt_max)
-	if err != nil {
-		return err
-	}
-
-	if err := db.replayDeltas(deltas); err != nil {
-		return err
-	}
-
-	return nil
-}
-
-func (ctx *Context) restoreImmutable() (ImmKeyTypeMap, error) {
-
-	path := ctx.ImmutablePath()
-
-	file, err := os.Open(path)
-	if err != nil {
-		return nil, err
-	}
-
-	var immutable ImmKeyTypeMap
-	enc := gob.NewDecoder(file)
-	if err = enc.Decode(&immutable); err != nil {
-		return nil, err
-	}
-
-	return immutable, nil
-}
-
-func (ctx *Context) loadMutable() (MutKeyTypeMap, int, int, error) {
-
-	mutables := listMutableCheckpoints(ctx.CheckpointDir())
-
-	// ctx.mcnt = probeMCNT(ctx.CheckpointDir())
-	// // if no mcnt is detected, no mutable checkpoint was committed.
-	if len(mutables) == 0 {
-		return nil, 0, 0, nil
-	}
-	path := mutables[len(mutables)-1]
-
-	file, err := os.Open(path)
-	if err != nil {
-		return nil, 0, 0, err
-	}
-
-	mut := &mutableID{}
-	enc := gob.NewDecoder(file)
-	if err = enc.Decode(mut); err != nil {
-		return nil, 0, 0, err
-	}
-
-	return mut.Mutable, mut.MCNT, mut.DCNT, nil
-}
-
-func (ctx *Context) loadDeltas(max_d int) ([]DeltaTypeMap, error) {
-
-	d_paths := listDeltaCheckpoints(ctx.CheckpointDir())
-	if len(d_paths) == 0 {
-		return nil, nil
-	}
-
-	var ds []DeltaTypeMap
-	dcnt := 0
-	for _, path := range d_paths {
-		d := new(deltaID)
-		file, err := os.Open(path)
-		if err != nil {
-			return nil, err
-		}
-		dec := gob.NewDecoder(file)
-		if err = dec.Decode(d); err != nil {
-			return nil, err
-		}
-		ds = append(ds, d.Delta)
-		dcnt = d.DCNT
-	}
-
-	if dcnt != max_d {
-		return nil, fmt.Errorf("delta.DCNT %d does not match mutable.DCNT %d", dcnt, max_d)
-	}
-
-	return ds, nil
-}
-
-func (db *StateDB) replayDeltas(deltas []DeltaTypeMap) error {
-
-	// there is nothing to replay
-	if len(deltas) == 0 {
-		return nil
-	}
-
-	// for every type of state in the delta
-	for _, delta := range deltas {
-		for _, m := range delta {
-			// for every StateOp in Delta
-			for _, st_op := range m {
-				if st_op.Action == REMOVE {
-					// remove immutable and mutable and register in delta
-					if !db.immutable.contains(&st_op.KT) {
-						return errors.New("StateDB.Replay: Trying to replay DELETE of non-existing KeyType:" + st_op.KT.String())
-					}
-					db.immutable.remove(&st_op.KT)
-					// db.mutable.remove(kt)
-				} else {
-					if db.immutable.contains(&st_op.KT) {
-						return errors.New("StateDB.Replay: Trying to replay CREATE of already existing KeyType:" + st_op.KT.String())
-					}
-					db.insertImmutable(&st_op.KT, st_op.Val)
-				}
-			}
-		}
-	}
-
-	// validate
-	immSize := 0
-	for _, t := range db.immutable {
-		immSize += len(t)
-	}
-	mutSize := 0
-	for _, t := range db.mutable {
-		mutSize += len(t)
-	}
-
-	if mutSize > immSize {
-		panic("StateDB.replayDelta: The number of mutable states > immutable ones.")
-	}
-
-	db.delta = nil
-
-	return nil
-}
-
-// The argument should be a current cpt_dir:
-//  <bucket>/<dir>/<suffix>/<cpt_id>
-// - if the immutable checkpoint is missing, it is not a valid checkpoint
-// - if a delta checkpoint exists, there
-func IsValidCheckpoint(path string) bool {
-	fmt.Println("checking for valid checkpoint in " + path)
-
-	if !IsDir(path) {
-		return false
-	}
-	if !IsFile(path + "/immutable.cpt") {
-		return false
-	}
-
-	return true
 }

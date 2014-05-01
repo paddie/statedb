@@ -80,7 +80,7 @@ func (s *Stat) ExpWriteDelta() float64 {
 // Expected restore-time of a zero-checkpoint
 // using the average write\approxread time
 // pr. entry in each database
-// Φ(R_Z) = TI +TM +∆I ·φI +∆M ·φM
+// Φ(R_Z) = TI + TM + ∆I * φI + ∆M * φM
 func (s *Stat) ExpReadZero() float64 {
 
 	if s.T_i == 0.0 || s.T_m == 0.0 {

@@ -8,7 +8,7 @@ import (
 	// "strconv"
 	// "encoding/gob"
 	"errors"
-	"log"
+	// "log"
 	"sync"
 )
 
@@ -57,9 +57,9 @@ func (db *StateDB) readyCheckpoint() bool {
 	return true
 }
 
-func NewStateDB(volume, dir, suffix string) (*StateDB, error) {
+func NewStateDB(fs Persistence) (*StateDB, error) {
 
-	ctx, err := NewContext(volume, dir, suffix)
+	ctx, err := NewContext(fs)
 	if err != nil {
 		return nil, err
 	}
@@ -71,19 +71,15 @@ func NewStateDB(volume, dir, suffix string) (*StateDB, error) {
 		op_chan:   make(chan *StateOperation),
 		quit:      make(chan chan error),
 	}
+
 	go db.StateSelect()
+
+	if err = db.ctx.Restore(db); err != nil {
+		return nil, err
+	}
 	// Check if we need to restore
-	if !ctx.previous {
-		return db, nil
-	}
 
-	log.Println("StateDB: Previous checkpoint %s. Attempting to restore..", ctx.CheckpointDir())
-
-	if err = db.ctx.RestoreStateDB(db); err == nil {
-		db.restored = true
-
-		return db, err
-	}
+	// log.Println("StateDB: Previous checkpoint %s. Attempting to restore..", ctx.CheckpointDir())
 
 	// reset the checkpoint
 	db.immutable = make(ImmKeyTypeMap)
@@ -119,7 +115,7 @@ type StateOperation struct {
 // Sync is a call for consistency; if the monitor has signalled a checkpoint
 // a checkpoint will be committed. During this time, we cannot allow any processes to
 // write or delete objects in the database.
-func (db *StateDB) Sync() error {
+func (db *StateDB) sync() error {
 	// response channel
 	err := make(chan error)
 	db.sync_chan <- &Msg{
@@ -189,7 +185,7 @@ func (db *StateDB) StateSelect() {
 			}
 		case err_chan := <-db.quit:
 			fmt.Println("Committing final checkpoint..")
-			err_chan <- db.fullCheckpoint()
+			err_chan <- db.zeroCheckpoint()
 			fmt.Println("Checkpoint committed. Shutting down..")
 			break
 		}

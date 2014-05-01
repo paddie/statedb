@@ -63,7 +63,7 @@ func (db *StateDB) Insert(i interface{}) (*KeyType, error) {
 	}
 
 	immv := Indirect(reflect.ValueOf(i))
-	imm_d, err := encodeImmutable(immv)
+	imm_d, err := encodeImmutableEntry(immv)
 	if err != nil {
 		return nil, err
 	}
@@ -83,7 +83,7 @@ func (db *StateDB) Insert(i interface{}) (*KeyType, error) {
 		if mut != nil {
 			fmt.Println("Inserting Mutable part of " + kt.String())
 			mutv := reflect.ValueOf(mut)
-			if err := validateMutable(mutv); err != nil {
+			if err := validateMutableEntry(mutv); err != nil {
 				return nil, err
 			}
 			so.mut = &MutState{
@@ -102,7 +102,7 @@ func (db *StateDB) Insert(i interface{}) (*KeyType, error) {
 	return kt, <-err_chan
 }
 
-func encodeImmutable(immv reflect.Value) ([]byte, error) {
+func encodeImmutableEntry(immv reflect.Value) ([]byte, error) {
 
 	if immv.Kind() == reflect.Ptr && immv.IsNil() {
 		return nil, errors.New("StateDB: Cannot encode nil pointer of type " + immv.Type().String())
@@ -118,7 +118,7 @@ func encodeImmutable(immv reflect.Value) ([]byte, error) {
 	return buff.Bytes(), nil
 }
 
-func validateMutable(mutv reflect.Value) error {
+func validateMutableEntry(mutv reflect.Value) error {
 	if mutv.Kind() != reflect.Ptr {
 		return errors.New("StateDB.Insert: Mutable MUST be a pointer")
 	}

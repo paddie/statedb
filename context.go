@@ -2,139 +2,85 @@ package statedb
 
 import (
 	// "encoding/gob"
-	// "errors"
-	"fmt"
-	"log"
-	"time"
+	"errors"
+	// "fmt"
+	// "log"
+	// "time"
 	// "os"
-	"io/ioutil"
-	"path"
-	"path/filepath"
-	"strconv"
-	"sync"
+	// "github.com/paddie/goamz/s3"
+	// "io/ioutil"
+	// "path"
+	// "path/filepath"
+	// "strconv"
+	// "strings"
+	// "sync"
 )
+
+var (
+	NoInfo = errors.New("No Info file exists")
+)
+
+// Interface to checkpoint data to non-volatile memory
+type Persistence interface {
+	List(prefix string) ([]string, error) // list items in dir
+	Put(name string, data []byte) error   // create/overwrite file
+	Get(name string) ([]byte, error)      // get file
+	Delete(path string) error             // delete file
+	Init() error                          // ensure that directory/bucket exists
+}
 
 // Volume: Amazon bucket identifier or Volume
 // Path:   Path to file in bucket
 // Suffix: Combination of Machine and application maybe?
-type ctx_dir struct {
-	volume, dir, suffix string // required for committing and recovering state
-	full                string // <bucket>/<dir>/<suffix>
-}
-
-func Newctx_dir(volume, dir, suffix string) (*ctx_dir, error) {
-
-	// dir must be != ""
-	if dir == "" {
-		return nil, fmt.Errorf("ctx_dir: volume='%s' dir='%s' suffix='%s'", volume, dir, suffix)
-	}
-
-	// Clean the paths
-	dir = path.Clean(dir)
-	volume = path.Clean(volume)
-	suffix = path.Clean(suffix)
-
-	// build the complete path
-	full := path.Join(volume, dir, suffix)
-
-	return &ctx_dir{
-		volume: volume,
-		dir:    dir,
-		suffix: suffix,
-		full:   full,
-	}, nil
+type CptInfo struct {
+	RCID int // reference checkpoint id - the id of the current reference checkpoint
+	DCNT int // delta count - the number of delta checkpoints since the last reference checkpoint
+	MCNT int // mutable checkpoints since the last reference checkpoint
 }
 
 type Context struct {
-	dir       ctx_dir
+	fs        Persistence
+	info      CptInfo
 	previous  bool // does the system need to be restored before using it?
 	committed bool // has this context been committed
-	rcid      int  // reference checkpoint id - the id of the current reference checkpoint
-	dcnt      int  // delta count - the number of delta checkpoints since the last reference checkpoint
-	mcnt      int  // mutable checkpoints since the last reference checkpoint
-	// statistics
-	recoveryTime  time.Duration // time to recover from this context
-	mutableTime   time.Duration // time to ciommit the latest mutable checkpoint
-	immutableTime time.Duration // time to commit the latest immutable checkpoint
-	deltaTime     time.Duration // time it took to commit the latest delta checkpoint
-	// stats  ctx_stats
-	// cpt_id     int    // the id of the last full update
-	// delta_diff int    // number of delta checkpoints relative to full checkpoint
-	// full       string // <bucket>/<dir>/<suffix>
-	// cpt_dir    string // <bucket>/<dir>/<suffix>/<cpt_id>
-	// restore    bool   // is true as long as a previous checkpoint has not been restored
-	sync.RWMutex
 }
 
-// Bucket: Amazon bucket identifier
-// Path:   Path to file in bucket
-// AppID:  Combination of Machine and application maybe?
-func NewContext(volume, dir, suffix string) (*Context, error) {
-
-	c_dir, err := Newctx_dir(volume, dir, suffix)
+func NewContext(fs Persistence) (*Context, error) {
+	ctx := &Context{
+		fs: fs,
+	}
+	err := ctx.fs.Init()
 	if err != nil {
 		return nil, err
 	}
 
-	// previous := false
-	if tmp, err := RebuildContext(*c_dir); err == nil {
-		return tmp, nil
-	}
-	// fmt.Println("Rebuild error: " + err.Error())
-
-	ctx := &Context{
-		dir: *c_dir,
-	}
-	// no previous checkpoints detected
-	// rcid, dcnt and mcnt are zero at init
-	// Create checkpoint directories. If some already exist at this checkpoint, signal a restore..
-	if err := ctx.initContext(); err != nil {
-		return nil, err
-	}
 	return ctx, nil
 }
 
-// If any existing checkpoints exist, a restore is signalled.
-// If no previous checkpoints exist, the checkpoint dir is created.
-func (ctx *Context) initContext() error {
-	// make sure that the checkpoint dir exists
-	if !IsDir(ctx.dir.full) {
-		log.Println("Creating Checkpoint dir at " + ctx.dir.full)
-		return CreateDir(ctx.dir.full)
+func (ctx *Context) newIncrementalContext() *Context {
+	if ctx.RCID() == 0 {
+		panic("Attempted to commit incremental checkpoint without a reference checkpoint")
 	}
 
-	return nil
-}
-
-func (ctx *Context) newIncrementalContext() *Context {
 	tmp := *ctx
 	// incremental checkpoint is made with every checkpoint
-	tmp.mcnt++
+	tmp.AddMCNT(1)
+	// tmp.info.mcnt++
 	// the copied value from the old ctx
 	// has this value to true (apart from in the initial case)
 	tmp.committed = false
 	return &tmp
 }
 
-func (ctx *Context) newRelativeContext() *Context {
+func (ctx *Context) newReferenceContext() *Context {
 	tmp := *ctx
-	// increase DCNT if there is something in the delta log
-	tmp.rcid++
-	tmp.mcnt = 1
-	tmp.dcnt = 0
+	tmp.AddRCID(1)
+	tmp.SetMCNT(1)
+	tmp.SetDCNT(0)
 	tmp.committed = false
 	return &tmp
 }
 
-func (ctx *Context) prepareDirectories() error {
-	err := CreateDir(ctx.CheckpointDir())
-	if err != nil {
-		return err
-	}
-	return nil
-}
-
-// Increase the checkpoint id and create the necessary subfolder
 func (ctx *Context) Copy() *Context {
 	// take lock to make sure that the updated cpt_id is
 	// updates atomically
@@ -143,105 +89,105 @@ func (ctx *Context) Copy() *Context {
 }
 
 // TODO: cache the checkpoint dir
-func (ctx *Context) CheckpointDir() string {
-	return path.Join(ctx.dir.full, fmt.Sprintf("%010d", ctx.rcid))
-}
+// func (ctx *Context) CheckpointDir() string {
+// 	return path.Join(ctx.dir.full, fmt.Sprintf("%010d", ctx.rcid))
+// }
 
 // Filename is generated by the MCNT (Mutable CouNT)
-func (ctx *Context) MutablePath() string {
-	return ctx.CheckpointDir() + fmt.Sprintf("/mutable_%010d.cpt", ctx.mcnt)
-}
+// func (ctx *Context) MutablePath() string {
+// 	return ctx.CheckpointDir() + fmt.Sprintf("/mutable_%010d.cpt", ctx.mcnt)
+// }
 
-func probeMCNT(path string) int {
+// func probeMCNT_OLD(path string) int {
 
-	pattern := filepath.Join(path, `mutable_*.cpt`)
+// 	pattern := filepath.Join(path, `mutable_*.cpt`)
 
-	files := ListGlob(pattern)
-	fmt.Println(files)
-	if len(files) == 0 {
-		return 0
-	}
+// 	files := ListGlob(pattern)
+// 	fmt.Println(files)
+// 	if len(files) == 0 {
+// 		return 0
+// 	}
 
-	// var mcnts []int
-	max := 0
-	// path_max := ""
-	for _, f := range files {
-		f = filepath.Base(f)
-		// mutable_*.cpt
-		// ________ ____
-		//    8       4
-		if mcnt, err := strconv.Atoi(f[8 : len(f)-4]); err == nil {
-			if mcnt > max {
-				max = mcnt
-				// path_max = f
-			}
-			// mcnts = append(mcnts, mcnt)
-		}
-	}
+// 	// var mcnts []int
+// 	max := 0
+// 	// path_max := ""
+// 	for _, f := range files {
+// 		f = filepath.Base(f)
+// 		// mutable_*.cpt
+// 		// ________ ____
+// 		//    8       4
+// 		if mcnt, err := strconv.Atoi(f[8 : len(f)-4]); err == nil {
+// 			if mcnt > max {
+// 				max = mcnt
+// 				// path_max = f
+// 			}
+// 			// mcnts = append(mcnts, mcnt)
+// 		}
+// 	}
 
-	if max == 0 {
-		return 0
-	}
+// 	if max == 0 {
+// 		return 0
+// 	}
 
-	return max
-}
+// 	return max
+// }
 
-func listMutableCheckpoints(dir string) []string {
-	pattern := filepath.Join(dir, `mutable_*.cpt`)
-	return ListGlob(pattern)
-}
+// func listMutableCheckpoints(dir string) []string {
+// 	pattern := filepath.Join(dir, `mutable_*.cpt`)
+// 	return ListGlob(pattern)
+// }
 
-func listDeltaCheckpoints(dir string) []string {
-	pattern := filepath.Join(dir, `delta_*.cpt`)
-	return ListGlob(pattern)
-}
+// func listDeltaCheckpoints(dir string) []string {
+// 	pattern := filepath.Join(dir, `delta_*.cpt`)
+// 	return ListGlob(pattern)
+// }
 
-func ListGlob(pattern string) []string {
+// func ListGlob(pattern string) []string {
 
-	files, err := filepath.Glob(pattern)
-	if err != nil {
-		return []string{}
-	}
-	return files
-}
+// 	files, err := filepath.Glob(pattern)
+// 	if err != nil {
+// 		return []string{}
+// 	}
+// 	return files
+// }
 
-func ListDeltas(path string) []string {
+// func ListDeltas(path string) []string {
 
-	files, err := filepath.Glob(`delta_*.cpt`)
-	if err != nil {
-		return []string{}
-	}
-	return files
-}
+// 	files, err := filepath.Glob(`delta_*.cpt`)
+// 	if err != nil {
+// 		return []string{}
+// 	}
+// 	return files
+// }
 
-func (ctx *Context) ImmutablePath() string {
-	return ctx.CheckpointDir() + "/immutable.cpt"
-}
+// func (ctx *Context) ImmutablePath() string {
+// 	return ctx.CheckpointDir() + "/immutable.cpt"
+// }
 
 // Filename is generated by the DCNT (Delta CouNT)
-func (ctx *Context) DeltaPath() string {
-	return ctx.CheckpointDir() + fmt.Sprintf("/delta_%010d.cpt", ctx.dcnt)
-}
+// func (ctx *Context) DeltaPath() string {
+// 	return ctx.CheckpointDir() + fmt.Sprintf("/delta_%010d.cpt", ctx.dcnt)
+// }
 
-func RebuildContext(dir ctx_dir) (*Context, error) {
-	rcid := ProbeRCID(dir.full)
-	if rcid == 0 {
-		return nil, fmt.Errorf("No previous checkpoint detected at %s", dir.full)
-	}
+// func RebuildContext(dir ctx_dir) (*Context, error) {
+// 	rcid := ProbeRCID(dir.full)
+// 	if rcid == 0 {
+// 		return nil, fmt.Errorf("No previous checkpoint detected at %s", dir.full)
+// 	}
 
-	tmp := &Context{
-		dir:  dir,
-		rcid: ProbeRCID(dir.full),
-		// mcnt: probeMCNT(dir.full),
-	}
-	tmp.previous = true
-	return tmp, nil
-}
+// 	tmp := &Context{
+// 		dir:  dir,
+// 		rcid: ProbeRCID(dir.full),
+// 		// mcnt: probeMCNT(dir.full),
+// 	}
+// 	tmp.previous = true
+// 	return tmp, nil
+// }
 
 // When restoring, this helps identify the type of the final checkpoint.
 func (ctx *Context) Type() string {
-	if ctx.rcid > 0 {
-		if ctx.mcnt > 0 {
+	if ctx.RCID() > 0 {
+		if ctx.MCNT() > 0 {
 			return "IncrementalCPT"
 		}
 		return "ReferenceCPT"
@@ -251,33 +197,69 @@ func (ctx *Context) Type() string {
 
 // Get the ID of the most recent full commit in the ctx.full folder.
 // Returns 0 if no valid full commit exists in the context.
-func ProbeRCID(path string) int {
-	files, err := ioutil.ReadDir(path)
-	if err != nil {
-		return 0
-	}
+// func ProbeRCID(path string) int {
+// 	files, err := ioutil.ReadDir(path)
+// 	if err != nil {
+// 		return 0
+// 	}
 
-	if len(files) == 0 {
-		return 0
-	}
+// 	if len(files) == 0 {
+// 		return 0
+// 	}
 
-	max := -1
-	folders := 0
-	for _, f := range files {
-		if f.IsDir() {
-			folders++
-			if id, err := strconv.Atoi(f.Name()); err == nil {
-				if id > max {
-					max = id
-				}
-			}
-		}
-	}
-	// if none of the files in ctx.dir were cpt folders
-	if folders == 0 || max <= 0 {
-		return 0
-	}
+// 	max := -1
+// 	folders := 0
+// 	for _, f := range files {
+// 		if f.IsDir() {
+// 			folders++
+// 			if id, err := strconv.Atoi(f.Name()); err == nil {
+// 				if id > max {
+// 					max = id
+// 				}
+// 			}
+// 		}
+// 	}
+// 	// if none of the files in ctx.dir were cpt folders
+// 	if folders == 0 || max <= 0 {
+// 		return 0
+// 	}
 
-	// set current cpt id in context
-	return max
+// 	// set current cpt id in context
+// 	return max
+// }
+
+func (c *Context) RCID() int {
+	return c.info.RCID
+}
+
+func (c *Context) AddRCID(v int) {
+	c.info.RCID += v
+}
+
+func (c *Context) SetRCID(v int) {
+	c.info.RCID = v
+}
+
+func (c *Context) DCNT() int {
+	return c.info.DCNT
+}
+
+func (c *Context) AddDCNT(v int) {
+	c.info.DCNT += v
+}
+
+func (c *Context) SetDCNT(v int) {
+	c.info.DCNT = v
+}
+
+func (c *Context) MCNT() int {
+	return c.info.MCNT
+}
+
+func (c *Context) AddMCNT(v int) {
+	c.info.MCNT += v
+}
+
+func (c *Context) SetMCNT(v int) {
+	c.info.MCNT = v
 }

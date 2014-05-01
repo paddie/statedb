@@ -1,34 +1,36 @@
 package statedb
 
 import (
-	"encoding/gob"
+	// "encoding/gob"
 	"errors"
-	"fmt"
-	"log"
-	"os"
+	// "fmt"
+	// "log"
+	// "os"
+)
+
+var (
+	NoData = errors.New("No Data to checkpoint")
 )
 
 func (db *StateDB) checkpoint() error {
 	// only checkpoint if something has been added to statedb
 	if len(db.immutable) == 0 {
-		log.Println("StateDB: There is nothing to checkpoint")
-		return nil
+		return NoData
 	}
 
-	// Stupid heuristic for when to take a zero or delta checkpoint
-	// TODO: cost comparison of (delta vs. zero)
-	if db.ctx.rcid == 0 || db.ctx.dcnt > 5 {
-		return db.fullCheckpoint()
+	if len(db.delta) == 0 {
+		return db.deltaCheckpoint()
 	}
 
-	return db.incrementalCheckpoint()
+	return db.zeroCheckpoint()
 }
 
-func (db *StateDB) incrementalCheckpoint() error {
+func (db *StateDB) deltaCheckpoint() error {
 	if len(db.delta) == 0 && len(db.mutable) == 0 {
-		return nil
+		return NoData
 	}
-	if err := db.ctx.commitIncrementalCpt(db); err != nil {
+
+	if err := db.ctx.createDeltaCheckpoint(db); err != nil {
 		return err
 	}
 	// reset delta after an incremental checkpoint
@@ -40,18 +42,15 @@ func (db *StateDB) incrementalCheckpoint() error {
 // The FullCheckpoint serves as a forced checkpoint of all the known states
 // - Assumes that the system is in a consistent state
 // - Checkpoints the Immutable and Mutable states, and empties the delta log.
-func (db *StateDB) fullCheckpoint() error {
+func (db *StateDB) zeroCheckpoint() error {
 	// nothing to commit, but not an error
 	if len(db.immutable) == 0 {
-		log.Println("StateDB: There is nothing to commit")
-		// return errors.New("StateDB: There is nothing to commit")
-		return nil
+		return NoData
 	}
 
-	if err := db.ctx.commitFullCheckpoint(db); err != nil {
+	if err := db.ctx.createZeroCheckpoint(db); err != nil {
 		return err
 	}
-
 	// if the checkpoint was successfull => reset delta log
 	db.delta = nil
 
@@ -59,52 +58,52 @@ func (db *StateDB) fullCheckpoint() error {
 }
 
 // Clean up after a relative checkpoint
-func (ctx *Context) PostRelative(newCTX *Context) {
-	if newCTX.committed {
+// func (ctx *Context) PostRelative(newCTX *Context) {
+// 	if newCTX.committed {
 
-		if ctx.rcid == 0 {
-			// nothing to clean up in initial checkpoint
-			*ctx = *newCTX
-			return
-		}
-		fmt.Printf("Relative Checkpoint %d succeeded. Removing:\n\t%s\n", newCTX.rcid, ctx.CheckpointDir())
-		// Delete last complete relative checkpoint
-		os.RemoveAll(ctx.CheckpointDir())
-		*ctx = *newCTX
-		return
-	}
-	fmt.Println("Relative Checkpoint failed, Removing:\n\t" + newCTX.CheckpointDir())
-	// undo any of the writes in the new relCheckpoint
-	os.RemoveAll(newCTX.CheckpointDir())
-}
+// 		if ctx.RCID() == 0 {
+// 			// nothing to clean up in initial checkpoint
+// 			*ctx = *newCTX
+// 			return
+// 		}
+// 		fmt.Printf("Relative Checkpoint %d succeeded. Removing:\n\t%s\n", newCTX.RCID(), ctx.CheckpointDir())
+// 		// Delete last complete relative checkpoint
+// 		os.RemoveAll(ctx.CheckpointDir())
+// 		*ctx = *newCTX
+// 		return
+// 	}
+// 	fmt.Println("Relative Checkpoint failed, Removing:\n\t" + newCTX.CheckpointDir())
+// 	// undo any of the writes in the new relCheckpoint
+// 	os.RemoveAll(newCTX.CheckpointDir())
+// }
 
 // Clean up after an incremental checkpoint
-func (ctx *Context) PostIncremental(newCTX *Context) {
-	if newCTX.committed {
-		fmt.Printf("Successful incremental mcnt: %d. Deleting\n\t%s\n", newCTX.mcnt, ctx.MutablePath())
-		// remove old mutable checkpoint
-		// there is now a new mutable checkpoint
-		os.Remove(ctx.MutablePath())
+// func (ctx *Context) PostIncremental(newCTX *Context) {
+// 	if newCTX.committed {
+// 		fmt.Printf("Successful incremental mcnt: %d. Deleting\n\t%s\n", newCTX.MCNT(), ctx.MutablePath())
+// 		// remove old mutable checkpoint
+// 		// there is now a new mutable checkpoint
+// 		os.Remove(ctx.MutablePath())
 
-		*ctx = *newCTX
-		return
-	}
-	fmt.Printf("Incremental Checkpoint failed. Removing\n")
-	// undo any of the write in the failed incrCheckpoint
-	// 1. delete mutable checkpoint
-	fmt.Println("\t" + newCTX.MutablePath())
-	os.Remove(newCTX.MutablePath())
+// 		*ctx = *newCTX
+// 		return
+// 	}
+// 	fmt.Printf("Incremental Checkpoint failed. Removing\n")
+// 	// undo any of the write in the failed incrCheckpoint
+// 	// 1. delete mutable checkpoint
+// 	fmt.Println("\t" + newCTX.MutablePath())
+// 	os.Remove(newCTX.MutablePath())
 
-	// 2. delete delta checkpoint if any was made
-	if ctx.dcnt < newCTX.dcnt {
-		fmt.Println("\t" + newCTX.DeltaPath())
-		os.Remove(newCTX.DeltaPath())
-	}
-}
+// 	// 2. delete delta checkpoint if any was made
+// 	if ctx.DCNT() < newCTX.DCNT() {
+// 		fmt.Println("\t" + newCTX.DeltaPath())
+// 		os.Remove(newCTX.DeltaPath())
+// 	}
+// }
 
 // Should only succeed if both immutable and mutable checkpoints are succesfully
 // committed to disk.
-func (ctx *Context) commitFullCheckpoint(db *StateDB) error {
+func (ctx *Context) createZeroCheckpoint(db *StateDB) error {
 
 	// Create a temporary context with an updated cpt_id
 	// 1. create the directories associated with the full commit
@@ -112,12 +111,8 @@ func (ctx *Context) commitFullCheckpoint(db *StateDB) error {
 	// 3. commit mutabe
 	// 4. if everything succeeds, replace context with the temporary one
 	// 5. if not, clean up the temporary dirs we created..
-	tmp := ctx.newRelativeContext()
-	defer ctx.PostRelative(tmp)
-
-	if err := tmp.prepareDirectories(); err != nil {
-		return err
-	}
+	tmp := ctx.newReferenceContext()
+	// defer ctx.PostRelative(tmp)
 
 	if err := tmp.commitImmutable(db.immutable); err != nil {
 		return err
@@ -137,17 +132,17 @@ func (ctx *Context) commitFullCheckpoint(db *StateDB) error {
 // - Before an incremental checkpoint can be performed, a reference full backup
 //   MUST precede it.
 // - If there is no reference checkpoint, it will return an error.
-func (ctx *Context) commitIncrementalCpt(db *StateDB) error {
+func (ctx *Context) createDeltaCheckpoint(db *StateDB) error {
 
-	if ctx.rcid == 0 {
+	if ctx.RCID() == 0 {
 		return errors.New("Context: A *full* checkpoint MUST be committed prior to any delta checkpoint")
 	}
 
 	tmp := ctx.newIncrementalContext()
-	defer ctx.PostIncremental(tmp)
+	// defer ctx.PostIncremental(tmp)
 
 	if len(db.delta) > 0 {
-		tmp.dcnt += db.delta.count()
+		tmp.AddDCNT(1)
 		if err := tmp.commitDelta(db.delta); err != nil {
 			return err
 		}
@@ -166,73 +161,73 @@ func (ctx *Context) commitIncrementalCpt(db *StateDB) error {
 	return nil
 }
 
-func (ctx *Context) commitImmutable(immutable ImmKeyTypeMap) error {
+// func (ctx *Context) commitImmutable(immutable ImmKeyTypeMap) error {
 
-	// Commit mutable
-	i_path := ctx.ImmutablePath()
+// 	// Commit mutable
+// 	// i_path := ctx.ImmutablePath()
 
-	i_file, err := os.Create(i_path)
-	if err != nil {
-		return err
-	}
-	defer i_file.Close()
+// 	i_file, err := os.Create(i_path)
+// 	if err != nil {
+// 		return err
+// 	}
+// 	defer i_file.Close()
 
-	enc := gob.NewEncoder(i_file)
-	if err = enc.Encode(immutable); err != nil {
-		return err
-	}
+// 	enc := gob.NewEncoder(i_file)
+// 	if err = enc.Encode(immutable); err != nil {
+// 		return err
+// 	}
 
-	return nil
-}
+// 	return nil
+// }
 
-type mutableID struct {
-	DCNT    int
-	RCID    int
-	MCNT    int
-	Mutable MutKeyTypeMap
-}
+// type mutableID struct {
+// 	DCNT    int
+// 	RCID    int
+// 	MCNT    int
+// 	Mutable MutKeyTypeMap
+// }
 
-// Overwrites any existing mutable checkpoint in the current
-// checkpoint id directory
-func (ctx *Context) commitMutable(mutable MutKeyTypeMap) error {
+// // Overwrites any existing mutable checkpoint in the current
+// // checkpoint id directory
+// func (ctx *Context) commitMutable(mutable MutKeyTypeMap) error {
 
-	// Commit mutable
-	// ctx.mcnt++
-	m_path := ctx.MutablePath()
+// 	// Commit mutable
+// 	// ctx.mcnt++
+// 	m_path := ctx.MutablePath()
 
-	m_file, err := os.Create(m_path)
-	if err != nil {
-		return err
-	}
-	defer m_file.Close()
+// 	m_file, err := os.Create(m_path)
+// 	if err != nil {
+// 		return err
+// 	}
+// 	defer m_file.Close()
 
-	// fmt.Println("commitMutable: ", mutable)
+// 	// fmt.Println("commitMutable: ", mutable)
 
-	// if there is nothing to commit, only commit the cpt id
-	wrap := &mutableID{
-		DCNT: ctx.dcnt,
-		RCID: ctx.rcid,
-		MCNT: ctx.mcnt,
-	}
-	if len(mutable) == 0 {
-		wrap.Mutable = nil
-	} else {
-		wrap.Mutable = mutable
-	}
+// 	// if there is nothing to commit, only commit the cpt id
+// 	wrap := &mutableID{
+// 		DCNT: ctx.DCNT(),
+// 		RCID: ctx.RCID(),
+// 		MCNT: ctx.MCNT(),
+// 	}
+// 	if len(mutable) == 0 {
+// 		wrap.Mutable = nil
+// 	} else {
+// 		wrap.Mutable = mutable
+// 	}
 
-	enc := gob.NewEncoder(m_file)
-	if err = enc.Encode(wrap); err != nil {
-		return err
-	}
+// 	enc := gob.NewEncoder(m_file)
+// 	if err = enc.Encode(wrap); err != nil {
+// 		return err
+// 	}
 
-	return nil
-}
+// 	return nil
+// }
 
-type deltaID struct {
-	DCNT  int
-	RCID  int
-	Delta DeltaTypeMap
-}
+// type deltaID struct {
+// 	DCNT  int
+// 	RCID  int
+// 	Delta DeltaTypeMap
+// }
 
 // A delta checkpoint writes the delta and mutable to disk.
 // It does not increment the ctx.cptId, and requires there
@@ -244,32 +239,32 @@ type deltaID struct {
 // - The mutable is written to 'mutable.cpt'
 // - The mutable is continuously replaced in every checkpoint
 //   TODO: make a swap file for the dynamic part.
-func (ctx *Context) commitDelta(delta DeltaTypeMap) error {
+// func (ctx *Context) commitDelta(delta DeltaTypeMap) error {
 
-	// fmt.Printf("Committing delta: %v (%d)\n", delta, len(delta))
-	// Commit delta
-	d_path := ctx.DeltaPath()
+// 	// fmt.Printf("Committing delta: %v (%d)\n", delta, len(delta))
+// 	// Commit delta
+// 	d_path := ctx.DeltaPath()
 
-	// Create file or append to existing
-	d_file, err := os.Create(d_path)
-	if err != nil {
-		return err
-	}
-	defer d_file.Close()
+// 	// Create file or append to existing
+// 	d_file, err := os.Create(d_path)
+// 	if err != nil {
+// 		return err
+// 	}
+// 	defer d_file.Close()
 
-	var d_wrap *deltaID
-	if len(delta) == 0 {
-		d_wrap = &deltaID{ctx.dcnt, ctx.rcid, nil}
-	} else {
-		d_wrap = &deltaID{ctx.dcnt, ctx.rcid, delta}
-	}
+// 	var d_wrap *deltaID
+// 	if len(delta) == 0 {
+// 		d_wrap = &deltaID{ctx.DCNT(), ctx.RCID(), nil}
+// 	} else {
+// 		d_wrap = &deltaID{ctx.DCNT(), ctx.RCID(), delta}
+// 	}
 
-	enc := gob.NewEncoder(d_file)
-	if err = enc.Encode(d_wrap); err != nil {
-		return err
-	}
+// 	enc := gob.NewEncoder(d_file)
+// 	if err = enc.Encode(d_wrap); err != nil {
+// 		return err
+// 	}
 
-	fmt.Println("Delta checkpoint committed to: " + d_path)
+// 	fmt.Println("Delta checkpoint committed to: " + d_path)
 
-	return nil
-}
+// 	return nil
+// }
