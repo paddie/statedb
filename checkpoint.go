@@ -13,30 +13,74 @@ var (
 )
 
 func (db *StateDB) checkpoint() error {
-	// only checkpoint if something has been added to statedb
-	if len(db.immutable) == 0 {
-		return NoData
-	}
-
+	// only returns encoding errors
+	// - commit errors are reported on db.err_can
+	// errChan := make(chan error)
+	var err error
 	if len(db.delta) == 0 {
-		return db.deltaCheckpoint()
+		err = db.deltaCheckpoint()
+	} else {
+		err = db.zeroCheckpoint()
 	}
 
-	return db.zeroCheckpoint()
+	if err != nil {
+		return err
+	}
+
+	return nil
 }
 
+// Encodes the two databases delta and mutable
+// and passes the encoded data on to be committed
+// - returns immediately after encoding, and handles any commit errors
+//   in StateLoop
 func (db *StateDB) deltaCheckpoint() error {
 	if len(db.delta) == 0 && len(db.mutable) == 0 {
 		return NoData
 	}
 
-	if err := db.ctx.createDeltaCheckpoint(db); err != nil {
-		return err
+	r := &CommitReq{
+		cpt_type: DELTACPT,
+		ctx:      db.ctx.newDeltaContext(),
 	}
-	// reset delta after an incremental checkpoint
-	db.delta = nil
 
-	return nil
+	// we fire of the delta encoding in another
+	// thread. Delta is most likely short.
+	errChan := make(chan error)
+	if len(db.delta) > 0 {
+		// when writing a delta checkpoint
+		// increase the delta id
+		r.ctx.DCNT += 1
+		go func(r *CommitReq, delta DeltaTypeMap) {
+			data, err := encodeDelta(delta, r.ctx.DCNT)
+			r.del = data // will be <nil> if encoding failed
+			errChan <- err
+		}(r, db.delta)
+	}
+	// response object
+	resp := &CommitResp{
+		cpt_type: DELTACPT,
+	}
+
+	// encode mutable but don't react on error before receiving
+	// from errChan
+	// var mut_err, del_err error
+	r.mut, resp.mut_err = encodeMutable(db.mutable, db.ctx.MCNT)
+
+	// if encoding delta, wait for completion
+	if len(db.delta) > 0 {
+		resp.del_err = <-errChan
+	}
+
+	// if encoding was successful, pass on to be
+	// committed to fs
+	if resp.Success() {
+		db.comReqChan <- r
+		db.delta = nil
+		return nil
+	}
+
+	return resp
 }
 
 // The FullCheckpoint serves as a forced checkpoint of all the known states
@@ -48,223 +92,38 @@ func (db *StateDB) zeroCheckpoint() error {
 		return NoData
 	}
 
-	if err := db.ctx.createZeroCheckpoint(db); err != nil {
-		return err
+	r := &CommitReq{
+		cpt_type: ZEROCPT,
+		ctx:      db.ctx.newZeroContext(),
 	}
-	// if the checkpoint was successfull => reset delta log
-	db.delta = nil
 
-	return nil
+	errChan := make(chan error)
+	go func(r *CommitReq, imm ImmKeyTypeMap) {
+		data, err := encodeImmutable(imm)
+		r.imm = data // will be <nil> if encoding failed
+		errChan <- err
+	}(r, db.immutable)
+
+	// response object
+	resp := &CommitResp{
+		cpt_type: DELTACPT,
+	}
+
+	// encode mutable but don't react on error before receiving
+	// from errChan
+	// var mut_err, del_err error
+	r.mut, resp.mut_err = encodeMutable(db.mutable, db.ctx.MCNT)
+
+	// if encoding delta, wait for completion
+	resp.imm_err = <-errChan
+
+	// if encoding was successful, pass on to be
+	// committed to fs
+	if resp.Success() {
+		db.comReqChan <- r
+		db.delta = nil
+		return nil
+	}
+
+	return resp
 }
-
-// Clean up after a relative checkpoint
-// func (ctx *Context) PostRelative(newCTX *Context) {
-// 	if newCTX.committed {
-
-// 		if ctx.RCID() == 0 {
-// 			// nothing to clean up in initial checkpoint
-// 			*ctx = *newCTX
-// 			return
-// 		}
-// 		fmt.Printf("Relative Checkpoint %d succeeded. Removing:\n\t%s\n", newCTX.RCID(), ctx.CheckpointDir())
-// 		// Delete last complete relative checkpoint
-// 		os.RemoveAll(ctx.CheckpointDir())
-// 		*ctx = *newCTX
-// 		return
-// 	}
-// 	fmt.Println("Relative Checkpoint failed, Removing:\n\t" + newCTX.CheckpointDir())
-// 	// undo any of the writes in the new relCheckpoint
-// 	os.RemoveAll(newCTX.CheckpointDir())
-// }
-
-// Clean up after an incremental checkpoint
-// func (ctx *Context) PostIncremental(newCTX *Context) {
-// 	if newCTX.committed {
-// 		fmt.Printf("Successful incremental mcnt: %d. Deleting\n\t%s\n", newCTX.MCNT(), ctx.MutablePath())
-// 		// remove old mutable checkpoint
-// 		// there is now a new mutable checkpoint
-// 		os.Remove(ctx.MutablePath())
-
-// 		*ctx = *newCTX
-// 		return
-// 	}
-// 	fmt.Printf("Incremental Checkpoint failed. Removing\n")
-// 	// undo any of the write in the failed incrCheckpoint
-// 	// 1. delete mutable checkpoint
-// 	fmt.Println("\t" + newCTX.MutablePath())
-// 	os.Remove(newCTX.MutablePath())
-
-// 	// 2. delete delta checkpoint if any was made
-// 	if ctx.DCNT() < newCTX.DCNT() {
-// 		fmt.Println("\t" + newCTX.DeltaPath())
-// 		os.Remove(newCTX.DeltaPath())
-// 	}
-// }
-
-// Should only succeed if both immutable and mutable checkpoints are succesfully
-// committed to disk.
-func (ctx *Context) createZeroCheckpoint(db *StateDB) error {
-
-	// Create a temporary context with an updated cpt_id
-	// 1. create the directories associated with the full commit
-	// 2. commit immutable
-	// 3. commit mutabe
-	// 4. if everything succeeds, replace context with the temporary one
-	// 5. if not, clean up the temporary dirs we created..
-	tmp := ctx.newReferenceContext()
-	// defer ctx.PostRelative(tmp)
-
-	if err := tmp.commitImmutable(db.immutable); err != nil {
-		return err
-	}
-
-	if err := tmp.commitMutable(db.mutable); err != nil {
-		return err
-	}
-
-	tmp.committed = true
-
-	return nil
-}
-
-// Every time an Incremental Checkpoint is generated, the delta is appended to the
-// 'delta.cpt' file. The mutable table is committed in its full (but might use a swap file at some point).
-// - Before an incremental checkpoint can be performed, a reference full backup
-//   MUST precede it.
-// - If there is no reference checkpoint, it will return an error.
-func (ctx *Context) createDeltaCheckpoint(db *StateDB) error {
-
-	if ctx.RCID() == 0 {
-		return errors.New("Context: A *full* checkpoint MUST be committed prior to any delta checkpoint")
-	}
-
-	tmp := ctx.newIncrementalContext()
-	// defer ctx.PostIncremental(tmp)
-
-	if len(db.delta) > 0 {
-		tmp.AddDCNT(1)
-		if err := tmp.commitDelta(db.delta); err != nil {
-			return err
-		}
-	}
-
-	if err := tmp.commitMutable(db.mutable); err != nil {
-		return err
-	}
-
-	tmp.committed = true
-
-	// *ctx = *tmp
-	// update delta diff so we can track the number
-	// of delta diffs between full checkpoints
-
-	return nil
-}
-
-// func (ctx *Context) commitImmutable(immutable ImmKeyTypeMap) error {
-
-// 	// Commit mutable
-// 	// i_path := ctx.ImmutablePath()
-
-// 	i_file, err := os.Create(i_path)
-// 	if err != nil {
-// 		return err
-// 	}
-// 	defer i_file.Close()
-
-// 	enc := gob.NewEncoder(i_file)
-// 	if err = enc.Encode(immutable); err != nil {
-// 		return err
-// 	}
-
-// 	return nil
-// }
-
-// type mutableID struct {
-// 	DCNT    int
-// 	RCID    int
-// 	MCNT    int
-// 	Mutable MutKeyTypeMap
-// }
-
-// // Overwrites any existing mutable checkpoint in the current
-// // checkpoint id directory
-// func (ctx *Context) commitMutable(mutable MutKeyTypeMap) error {
-
-// 	// Commit mutable
-// 	// ctx.mcnt++
-// 	m_path := ctx.MutablePath()
-
-// 	m_file, err := os.Create(m_path)
-// 	if err != nil {
-// 		return err
-// 	}
-// 	defer m_file.Close()
-
-// 	// fmt.Println("commitMutable: ", mutable)
-
-// 	// if there is nothing to commit, only commit the cpt id
-// 	wrap := &mutableID{
-// 		DCNT: ctx.DCNT(),
-// 		RCID: ctx.RCID(),
-// 		MCNT: ctx.MCNT(),
-// 	}
-// 	if len(mutable) == 0 {
-// 		wrap.Mutable = nil
-// 	} else {
-// 		wrap.Mutable = mutable
-// 	}
-
-// 	enc := gob.NewEncoder(m_file)
-// 	if err = enc.Encode(wrap); err != nil {
-// 		return err
-// 	}
-
-// 	return nil
-// }
-
-// type deltaID struct {
-// 	DCNT  int
-// 	RCID  int
-// 	Delta DeltaTypeMap
-// }
-
-// A delta checkpoint writes the delta and mutable to disk.
-// It does not increment the ctx.cptId, and requires there
-// to be an existing full commit as a reference.
-// The delta and mutable checkpoints are wrapped in a checkpoint id
-// to enable lock-step recovery and to make sure that the mutable checkpoint
-// matches up to the delta.
-// - The delta is appended to 'delta.cpt'
-// - The mutable is written to 'mutable.cpt'
-// - The mutable is continuously replaced in every checkpoint
-//   TODO: make a swap file for the dynamic part.
-// func (ctx *Context) commitDelta(delta DeltaTypeMap) error {
-
-// 	// fmt.Printf("Committing delta: %v (%d)\n", delta, len(delta))
-// 	// Commit delta
-// 	d_path := ctx.DeltaPath()
-
-// 	// Create file or append to existing
-// 	d_file, err := os.Create(d_path)
-// 	if err != nil {
-// 		return err
-// 	}
-// 	defer d_file.Close()
-
-// 	var d_wrap *deltaID
-// 	if len(delta) == 0 {
-// 		d_wrap = &deltaID{ctx.DCNT(), ctx.RCID(), nil}
-// 	} else {
-// 		d_wrap = &deltaID{ctx.DCNT(), ctx.RCID(), delta}
-// 	}
-
-// 	enc := gob.NewEncoder(d_file)
-// 	if err = enc.Encode(d_wrap); err != nil {
-// 		return err
-// 	}
-
-// 	fmt.Println("Delta checkpoint committed to: " + d_path)
-
-// 	return nil
-// }

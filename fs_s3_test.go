@@ -7,7 +7,7 @@ import (
 	"testing"
 )
 
-func TestS3Put(t *testing.T) {
+func TestFS_S3_Put_Get(t *testing.T) {
 
 	auth, err := aws.EnvAuth()
 	if err != nil {
@@ -19,9 +19,8 @@ func TestS3Put(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	err = fs.Init()
-	if err != nil {
-		t.Fatal(err)
+	if err = fs.Init(); err != nil {
+		fmt.Println(err.Error())
 	}
 
 	str := "immaculate test!"
@@ -46,4 +45,7 @@ func TestS3Put(t *testing.T) {
 		t.Fatal(err)
 	}
 
+	if _, err = fs.Get("put.tst"); err == nil {
+		t.Fatal("key should not exist!")
+	}
 }

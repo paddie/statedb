@@ -49,13 +49,13 @@ func TestPut(t *testing.T) {
 
 	str := "immaculate test!"
 
-	fmt.Println("Writing: ", str)
-	err = fs.Put("put.tst", []byte(str))
+	fmt.Println("Writing: ", str, " to tmp/put.tst")
+	err = fs.Put("tmp/put.tst", []byte(str))
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	data, err := fs.Get("put.tst")
+	data, err := fs.Get("tmp/put.tst")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -64,7 +64,13 @@ func TestPut(t *testing.T) {
 		t.Fatalf("PUT != GET data: '%s'", string(data))
 	}
 
-	err = fs.Delete("put.tst")
+	// delete file...
+	err = fs.Delete("tmp/put.tst")
+	if err != nil {
+		t.Fatal(err)
+	}
+	// folder
+	err = fs.Delete("tmp")
 	if err != nil {
 		t.Fatal(err)
 	}

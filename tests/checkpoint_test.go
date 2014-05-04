@@ -3,7 +3,7 @@ package statedb
 import (
 	"fmt"
 	"os"
-	// "reflect"
+	"reflect"
 	"runtime"
 	"testing"
 	// "time"
@@ -79,90 +79,93 @@ func CleanUp(path string) error {
 	return os.RemoveAll(path)
 }
 
-// func RestoreCheckpoint(path string, t *testing.T) {
+func RestoreCheckpoint(path string, t *testing.T) {
 
-// 	fmt.Println("restoring from " + path)
+	fmt.Println("restoring from " + path)
 
-// 	db, err := NewStateDB("", path, "")
-// 	if err != nil {
-// 		t.Fatal(err)
-// 	}
+	db, err := NewStateDB("", path, "")
+	if err != nil {
+		t.Fatal(err)
+	}
 
-// 	var ws []Weird
-// 	typ := ReflectTypeM(&Weird{})
-// 	if it, err := db.RestoreIter(typ); err == nil {
-// 		for {
-// 			weird := new(Weird)
-// 			_, ok := it.Next(weird)
-// 			if !ok {
-// 				break
-// 			}
+	var ws []Weird
+	typ := ReflectTypeM(&Weird{})
+	if it, err := db.RestoreIter(typ); err == nil {
+		for {
+			weird := new(Weird)
+			_, ok := it.Next(weird)
+			if !ok {
+				break
+			}
 
-// 			// fmt.Println(weird)
-// 			ws = append(ws, *weird)
-// 		}
-// 	} else {
-// 		t.Fatal(err)
-// 	}
+			// fmt.Println(weird)
+			ws = append(ws, *weird)
+		}
+	} else {
+		t.Fatal(err)
+	}
 
-// 	if len(ws) != len(main) {
-// 		t.Fatalf("Length of restored %d != %d length of committed", len(ws), len(main))
-// 	}
+	var wd []Wurd
+	typ = ReflectTypeM(Wurd{})
+	if it, err := db.RestoreIter(typ); err == nil {
+		for {
+			weird := new(Wurd)
+			_, ok := it.Next(weird)
+			if !ok {
+				break
+			}
+			fmt.Println(weird)
+			ws = append(ws, *weird)
+		}
+	} else {
+		t.Fatal(err)
+	}
 
-// 	fmt.Printf("restored: %#v\n", ws)
-// }
+	fmt.Printf("restored: %#v\n", ws)
+}
 
-// func RestorePartialState(path string, t *testing.T) {
+func RestorePartialState(path string, t *testing.T) {
 
-// 	fmt.Println("restoring from " + path)
+	fmt.Println("restoring from " + path)
 
-// 	db, err := NewStateDB("", path, "")
-// 	if err != nil {
-// 		t.Fatal(err)
-// 	}
+	db, err := NewStateDB("", path, "")
+	if err != nil {
+		t.Fatal(err)
+	}
 
-// 	var ws []Wurd
-// 	typ := ReflectTypeM(Wurd{})
-// 	if it, err := db.RestoreIter(typ); err == nil {
-// 		for {
-// 			weird := new(Wurd)
-// 			_, ok := it.Next(weird)
-// 			if !ok {
-// 				break
-// 			}
+	var ws []Wurd
+	typ := ReflectTypeM(Wurd{})
+	if it, err := db.RestoreIter(typ); err == nil {
+		for {
+			weird := new(Wurd)
+			_, ok := it.Next(weird)
+			if !ok {
+				break
+			}
 
-// 			fmt.Println(weird)
-// 			ws = append(ws, *weird)
-// 		}
-// 	} else {
-// 		t.Fatal(err)
-// 	}
+			fmt.Println(weird)
+			ws = append(ws, *weird)
+		}
+	} else {
+		t.Fatal(err)
+	}
 
-// 	if err = db.Checkpoint(); err != nil {
-// 		t.Fatal(err)
-// 	}
+	if err = db.Checkpoint(); err != nil {
+		t.Fatal(err)
+	}
 
-// 	// if
+	if 
 
-// 	fmt.Printf("restored: %#v\n", ws)
-// }
+	fmt.Printf("restored: %#v\n", ws)
+}
 
 func WriteFullAndDelta(path string, t *testing.T) {
-
-	fs, err := NewFS_OS("checkpoint_test")
-	if err != nil {
-		t.Fatal(err)
-		return
-	}
-
-	err = fs.Init()
+	db, err := NewStateDB("", path, "")
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	db, err := NewStateDB(fs)
-	if err != nil {
-		t.Fatal(err)
+	if db.restored {
 		return
 	}
 
@@ -187,7 +190,7 @@ func WriteFullAndDelta(path string, t *testing.T) {
 				t.Fatal(err)
 			}
 			if i%2 == 0 {
-				if err := db.checkpoint(); err != nil {
+				if err := db.Checkpoint(); err != nil {
 					t.Fatal(err)
 				}
 			}
@@ -209,7 +212,7 @@ func WriteFullAndDelta(path string, t *testing.T) {
 				t.Fatal(err)
 			}
 
-			if err := db.checkpoint(); err != nil {
+			if err := db.Checkpoint(); err != nil {
 				t.Fatal(err)
 			}
 		}
@@ -221,7 +224,7 @@ func WriteFullAndDelta(path string, t *testing.T) {
 			}
 		}
 		if i%2 == 0 {
-			if err := db.checkpoint(); err != nil {
+			if err := db.Checkpoint(); err != nil {
 				t.Fatal(err)
 			}
 		}
@@ -236,7 +239,7 @@ func WriteFullAndDelta(path string, t *testing.T) {
 	}
 	// is not normally possible
 
-	db.checkpoint()
+	db.Checkpoint()
 }
 
 func TestCheckpoint(t *testing.T) {
@@ -245,5 +248,5 @@ func TestCheckpoint(t *testing.T) {
 
 	WriteFullAndDelta(path, t)
 
-	// RestoreCheckpoint(path, t)
+	RestoreCheckpoint(path, t)
 }

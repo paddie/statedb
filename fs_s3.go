@@ -26,7 +26,14 @@ func NewFS_S3(auth aws.Auth, region aws.Region, dir, name string) (*FS_S3, error
 }
 
 func (b *FS_S3) Init() error {
-	return b.fs.PutBucket(s3.BucketOwnerFull)
+
+	// check if bucket already exists
+	_, err := b.fs.List("", "/", "", 1)
+	if err != nil {
+		return b.fs.PutBucket(s3.BucketOwnerFull)
+	}
+
+	return nil
 }
 
 // S3 does not have folders, but files can use a "/" delimiter to

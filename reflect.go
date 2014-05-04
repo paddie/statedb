@@ -74,22 +74,6 @@ func ReflectType(i interface{}) string {
 	return reflectType(reflect.ValueOf(i))
 }
 
-// func reflectKeyType(val reflect.Value) (*KeyType, error) {
-// 	key, err := reflectKey(Indirect(val))
-// 	if err != nil {
-// 		return nil, err
-// 	}
-
-// 	typeStr := reflectType(val)
-// 	if typeStr == "" {
-// 		return nil, fmt.Errorf("No accessible keytype for %v", val)
-// 	}
-
-// 	return &KeyType{
-// 		K: *key,
-// 		T: typeStr}, nil
-// }
-
 // Return the unique type if for any object
 func reflectType(val reflect.Value) string {
 	return Indirect(val).Type().String()

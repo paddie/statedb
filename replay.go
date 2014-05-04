@@ -14,98 +14,107 @@ import (
 )
 
 var (
-	NoCheckpoint = errors.New("No Previous Checkpoint")
+	NoCheckpointError = errors.New("No Previous Checkpoint")
 )
 
-func (ctx *Context) Restore(db *StateDB) error {
+func restore(fs Persistence) (*StateDB, error) {
 
-	info, err := ctx.retrieveInfo()
+	// retrieve the most recent context
+	ctx, err := retrieveContext(fs)
 	if err != nil {
 		// No previous checkpoint was registered
-		return err
+		return nil, NoCheckpointError
 	}
 
-	// update context info
-	ctx.info = *info
-	imm, err := ctx.retrieveImmutable()
+	db := &StateDB{
+		ctx: ctx,
+		// op_chan: make(chan *StateOperation),
+		// quit:    make(chan chan error),
+	}
+
+	imm, err := retrieveImmutable(fs, ctx)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	db.immutable = imm
 
-	if ctx.MCNT() > 0 {
-		mut, err := ctx.retrieveMutable()
+	if ctx.MCNT > 0 {
+		mut, err := retrieveMutable(fs, ctx)
 		if err != nil {
 			db.immutable = nil
-			return err
+			return nil, err
 		}
 		db.mutable = mut
 	}
 	db.restored = true
+	db.ctx = ctx
 
-	if ctx.DCNT() == 0 {
-		return nil
+	if ctx.DCNT != 0 {
+		deltas, err := retrieveDeltas(fs, ctx)
+		if err != nil {
+			return nil, err
+		}
+
+		if err := db.replayDeltas(deltas); err != nil {
+			return nil, err
+		}
 	}
 
-	deltas, err := ctx.retrieveDeltas()
-	if err != nil {
-		db.immutable = nil
-		db.mutable = nil
-		db.delta = nil
-		return err
-	}
-
-	if err := db.replayDeltas(deltas); err != nil {
-		db.immutable = nil
-		db.mutable = nil
-		db.delta = nil
-		return err
-	}
-
-	return nil
+	return db, nil
 }
 
-func (ctx *Context) retrieveInfo() (*CptInfo, error) {
-	data, err := ctx.fs.Get("cpt.nfo")
-	if err != nil {
-		return nil, err
+func retrieveContext(fs Persistence) (*Context, error) {
+	data0, err0 := fs.Get("cpt0.nfo")
+	data1, err1 := fs.Get("cpt1.nfo")
+
+	// if no ctx was found
+	if err0 != nil && err1 != nil {
+		return nil, err0
+	}
+	// if only one returned
+	// => decode and return
+	if err0 == nil && err1 != nil {
+		return decodeContext(data0)
+	}
+	if err1 == nil && err0 != nil {
+		return decodeContext(data1)
 	}
 
+	// two context were found
+	// - deserialize and determine which is the most recent
+	var c0, c1 *Context
+	c0, err0 = decodeContext(data0)
+	c1, err1 = decodeContext(data1)
+
+	// if both failed, return error
+	if err0 != nil && err1 != nil {
+		return nil, err0
+	}
+	if err0 == nil && err1 != nil {
+		return c0, nil
+	}
+	if err1 == nil && err0 != nil {
+		return c1, nil
+	}
+
+	return MostRecent(c0, c1), nil
+}
+
+func decodeContext(data []byte) (*Context, error) {
 	buff := bytes.NewBuffer(data)
 	dec := gob.NewDecoder(buff)
 
-	info := &CptInfo{}
-	if err := dec.Decode(info); err != nil {
+	ctx := new(Context)
+	if err := dec.Decode(ctx); err != nil {
 		return nil, err
 	}
 
-	return info, nil
+	return ctx, nil
 }
 
-func (i CptInfo) ImmPath() string {
-	return fmt.Sprintf("/%d/imm.cpt", i.RCID)
-}
-
-func (i CptInfo) MutPath() string {
-	return fmt.Sprintf("/%d/mut_%d.cpt", i.RCID, i.MCNT)
-}
-
-func (info CptInfo) DeltaPaths() []string {
-	paths := make([]string, 0, info.DCNT)
-	for i := 0; i < info.DCNT; i++ {
-		paths = append(paths, fmt.Sprintf("/%d/del_%d.cpt", info.RCID, i))
-	}
-
-	return paths
-}
-
-func (info CptInfo) DelPath() string {
-	return fmt.Sprintf("/%d/del_%d.cpt", info.DCNT, info.DCNT)
-}
-
-func (ctx *Context) retrieveImmutable() (ImmKeyTypeMap, error) {
-	path := ctx.info.ImmPath()
-	data, err := ctx.fs.Get(path)
+func retrieveImmutable(fs Persistence, ctx *Context) (ImmKeyTypeMap, error) {
+	path := ctx.ImmPath()
+	data, err := fs.Get(path)
 	if err != nil {
 		return nil, err
 	}
@@ -113,9 +122,9 @@ func (ctx *Context) retrieveImmutable() (ImmKeyTypeMap, error) {
 	return decodeImmutable(data)
 }
 
-func (ctx *Context) retrieveMutable() (MutKeyTypeMap, error) {
-	path := ctx.info.MutPath()
-	data, err := ctx.fs.Get(path)
+func retrieveMutable(fs Persistence, ctx *Context) (MutKeyTypeMap, error) {
+	path := ctx.MutPath()
+	data, err := fs.Get(path)
 	if err != nil {
 		return nil, err
 	}
@@ -129,9 +138,9 @@ type DeltaGet struct {
 	err  error
 }
 
-func (ctx *Context) retrieveDeltas() ([]DeltaTypeMap, error) {
+func retrieveDeltas(fs Persistence, ctx *Context) ([]DeltaTypeMap, error) {
 
-	paths := ctx.info.DeltaPaths()
+	paths := ctx.DeltaPaths()
 	deltas := make([]DeltaTypeMap, len(paths))
 
 	res := make(chan *DeltaGet, 0)
@@ -141,7 +150,7 @@ func (ctx *Context) retrieveDeltas() ([]DeltaTypeMap, error) {
 				id: id,
 			}
 			// retrieve binary data from fs
-			data, err := ctx.fs.Get(path)
+			data, err := fs.Get(path)
 			if err != nil {
 				dg.err = err
 				res <- dg
@@ -170,61 +179,6 @@ func (ctx *Context) retrieveDeltas() ([]DeltaTypeMap, error) {
 	}
 	return deltas, nil
 }
-
-// func (ctx *Context) RestoreStateDB(db *StateDB) error {
-
-// 	if db == nil {
-// 		return errors.New("StateDB has not been initialized yet")
-// 	}
-
-// 	info, err := ctx.retrieveInfo()
-// 	if err != nil {
-// 		// No previous checkpoint was recovered
-// 		return err
-// 	}
-// 	ctx.info = info
-
-// 	// if !IsValidCheckpoint(ctx.CheckpointDir()) {
-// 	// 	return errors.New("StateDB.Restore: invalid checkpoint directory: " + ctx.CheckpointDir())
-// 	// }
-
-// 	imm, err := ctx.restoreImmutable()
-// 	if err != nil {
-// 		log.Println("StateDB.Restore: Failed to decode immutable checkpoint from " + ctx.CheckpointDir())
-// 		return err
-// 	}
-
-// 	// restore mutable part of the checkpoint
-// 	mut, mcnt, dcnt_max, err := ctx.loadMutable()
-// 	if err != nil {
-// 		log.Println("StateDB.Restore: Failed to restore mutable from " + ctx.CheckpointDir())
-// 		return err
-// 	}
-// 	ctx.mcnt = mcnt
-// 	ctx.dcnt = dcnt_max
-
-// 	db.immutable = imm
-// 	db.mutable = mut
-
-// 	db.restored = true
-
-// 	// there are no delta checkpoints to log
-// 	if dcnt_max == 0 {
-// 		return nil
-// 	}
-
-// 	// restore and replay the delta commits
-// 	deltas, err := ctx.loadDeltas(dcnt_max)
-// 	if err != nil {
-// 		return err
-// 	}
-
-// 	if err := db.replayDeltas(deltas); err != nil {
-// 		return err
-// 	}
-
-// 	return nil
-// }
 
 func (db *StateDB) replayDeltas(deltas []DeltaTypeMap) error {
 

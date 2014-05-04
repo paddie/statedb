@@ -30,7 +30,7 @@ func (fs *FS_OS) Put(path string, data []byte) error {
 	// Example: path = "test/dir/file.cpt"
 	// - creates dir test and test/dir and writes file
 	dir := p.Dir(path)
-	if err := os.MkdirAll(dir, os.ModePerm); err != nil {
+	if err := os.MkdirAll(filepath.Join(fs.Dir, dir), os.ModePerm); err != nil {
 		return err
 	}
 
@@ -45,10 +45,13 @@ func (fs *FS_OS) Get(name string) ([]byte, error) {
 	return ioutil.ReadAll(f)
 }
 
+// Removes the named file or directory
 func (fs *FS_OS) Delete(name string) error {
 	return os.Remove(filepath.Join(fs.Dir, name))
 }
 
+// Returns a list of file that matches the
+// shell file name pattern
 func (fs *FS_OS) List(pattern string) ([]string, error) {
 	return filepath.Glob(filepath.Join(fs.Dir, pattern))
 }
