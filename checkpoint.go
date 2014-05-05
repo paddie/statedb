@@ -3,7 +3,7 @@ package statedb
 import (
 	// "encoding/gob"
 	"errors"
-	// "fmt"
+	"fmt"
 	// "log"
 	// "os"
 )
@@ -24,6 +24,7 @@ func (db *StateDB) checkpoint() error {
 	}
 
 	if err != nil {
+		fmt.Println("Failed checkpointing: ", err)
 		return err
 	}
 
@@ -44,43 +45,44 @@ func (db *StateDB) deltaCheckpoint() error {
 		ctx:      db.ctx.newDeltaContext(),
 	}
 
+	// resp := &CommitResp{
+	// 	cpt_type: DELTACPT,
+	// }
+
 	// we fire of the delta encoding in another
 	// thread. Delta is most likely short.
-	errChan := make(chan error)
+	// errChan := make(chan error)
+	var err error
 	if len(db.delta) > 0 {
 		// when writing a delta checkpoint
 		// increase the delta id
 		r.ctx.DCNT += 1
-		go func(r *CommitReq, delta DeltaTypeMap) {
-			data, err := encodeDelta(delta, r.ctx.DCNT)
-			r.del = data // will be <nil> if encoding failed
-			errChan <- err
-		}(r, db.delta)
-	}
-	// response object
-	resp := &CommitResp{
-		cpt_type: DELTACPT,
+		// go func(r *CommitReq, delta DeltaTypeMap) {
+		r.del, err = encodeDelta(db.delta, r.ctx.DCNT)
+		if err != nil {
+			return err
+		}
+		// r.del = data // will be <nil> if encoding failed
+		// errChan <- err
+		// }(r, db.delta)
 	}
 
 	// encode mutable but don't react on error before receiving
 	// from errChan
 	// var mut_err, del_err error
-	r.mut, resp.mut_err = encodeMutable(db.mutable, db.ctx.MCNT)
-
-	// if encoding delta, wait for completion
-	if len(db.delta) > 0 {
-		resp.del_err = <-errChan
+	r.mut, err = encodeMutable(db.mutable, db.ctx.MCNT)
+	if err != nil {
+		return err
 	}
+	// if encoding delta, wait for completion
+	// if len(db.delta) > 0 {
+	// 	resp.del_err = <-errChan
+	// }
 
 	// if encoding was successful, pass on to be
 	// committed to fs
-	if resp.Success() {
-		db.comReqChan <- r
-		db.delta = nil
-		return nil
-	}
-
-	return resp
+	db.comReqChan <- r
+	return nil
 }
 
 // The FullCheckpoint serves as a forced checkpoint of all the known states
@@ -97,33 +99,32 @@ func (db *StateDB) zeroCheckpoint() error {
 		ctx:      db.ctx.newZeroContext(),
 	}
 
-	errChan := make(chan error)
-	go func(r *CommitReq, imm ImmKeyTypeMap) {
-		data, err := encodeImmutable(imm)
-		r.imm = data // will be <nil> if encoding failed
-		errChan <- err
-	}(r, db.immutable)
+	// errChan := make(chan error)
+	// go func(r *CommitReq, imm ImmKeyTypeMap) {
 
-	// response object
-	resp := &CommitResp{
-		cpt_type: DELTACPT,
+	// 	errChan <- err
+	// }(r, db.immutable)
+	// resp := &CommitResp{
+	// 	cpt_type: DELTACPT,
+	// }
+	var err error
+	r.imm, err = encodeImmutable(db.immutable)
+	if err != nil {
+		return err
 	}
+	// r.imm = data // will be <nil> if encoding failed
 
 	// encode mutable but don't react on error before receiving
 	// from errChan
-	// var mut_err, del_err error
-	r.mut, resp.mut_err = encodeMutable(db.mutable, db.ctx.MCNT)
-
+	r.mut, err = encodeMutable(db.mutable, db.ctx.MCNT)
+	if err != nil {
+		return err
+	}
 	// if encoding delta, wait for completion
-	resp.imm_err = <-errChan
 
 	// if encoding was successful, pass on to be
 	// committed to fs
-	if resp.Success() {
-		db.comReqChan <- r
-		db.delta = nil
-		return nil
-	}
 
-	return resp
+	db.comReqChan <- r
+	return nil
 }

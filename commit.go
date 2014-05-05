@@ -64,9 +64,11 @@ func commitLoop(fs Persistence, req chan *CommitReq, comResp chan *CommitResp) {
 		// commit either the immutable or the delta depending on the type of
 		// checkpoint
 		if r.cpt_type == ZEROCPT {
+			fmt.Println("Received ZEROCPT")
 			c.imm_dur, c.imm_err = commit_t(fs, r.ctx.ImmPath(), r.imm)
 
 		} else {
+			fmt.Println("Received ∆CPT")
 			c.del_dur, c.del_err = commit_t(fs, r.ctx.DelPath(), r.del)
 		}
 		// retrieve any error from committing the mutable
@@ -82,6 +84,7 @@ func commitLoop(fs Persistence, req chan *CommitReq, comResp chan *CommitResp) {
 		c.ctx_err = commitContext(fs, r.ctx)
 
 		// send back commit errors if any
+		fmt.Println("Comitted!")
 		comResp <- c
 	}
 
@@ -98,6 +101,7 @@ func commitContext(fs Persistence, ctx *Context) error {
 
 func commit_t(fs Persistence, path string, data []byte) (time.Duration, error) {
 	now := time.Now()
+
 	err := fs.Put(path, data)
 
 	return time.Now().Sub(now), err

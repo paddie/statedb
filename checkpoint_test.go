@@ -4,10 +4,10 @@ import (
 	"fmt"
 	"os"
 	// "reflect"
-	"runtime"
-	"testing"
-	// "time"
+	// "runtime"
 	"sync"
+	"testing"
+	"time"
 )
 
 type Main struct {
@@ -53,7 +53,7 @@ var weird []*Weird
 
 func init() {
 
-	runtime.GOMAXPROCS(4)
+	// runtime.GOMAXPROCS(4)
 
 	main = []*Main{
 		{ID: 1, Tmp: 1},
@@ -79,38 +79,35 @@ func CleanUp(path string) error {
 	return os.RemoveAll(path)
 }
 
-// func RestoreCheckpoint(path string, t *testing.T) {
+func RestoreCheckpoint(fs Persistence, t *testing.T) {
+	db, err := NewStateDB(fs)
+	if err != nil {
+		t.Fatal(err)
+	}
 
-// 	fmt.Println("restoring from " + path)
+	var ws []Weird
+	typ := ReflectTypeM(&Weird{})
+	if it, err := db.RestoreIter(typ); err == nil {
+		for {
+			weird := new(Weird)
+			_, ok := it.Next(weird)
+			if !ok {
+				break
+			}
 
-// 	db, err := NewStateDB("", path, "")
-// 	if err != nil {
-// 		t.Fatal(err)
-// 	}
+			// fmt.Println(weird)
+			ws = append(ws, *weird)
+		}
+	} else {
+		t.Fatal(err)
+	}
 
-// 	var ws []Weird
-// 	typ := ReflectTypeM(&Weird{})
-// 	if it, err := db.RestoreIter(typ); err == nil {
-// 		for {
-// 			weird := new(Weird)
-// 			_, ok := it.Next(weird)
-// 			if !ok {
-// 				break
-// 			}
+	if len(ws) != len(main)-1 {
+		t.Fatalf("Length of restored %d != %d length of committed", len(ws), len(main))
+	}
 
-// 			// fmt.Println(weird)
-// 			ws = append(ws, *weird)
-// 		}
-// 	} else {
-// 		t.Fatal(err)
-// 	}
-
-// 	if len(ws) != len(main) {
-// 		t.Fatalf("Length of restored %d != %d length of committed", len(ws), len(main))
-// 	}
-
-// 	fmt.Printf("restored: %#v\n", ws)
-// }
+	fmt.Printf("restored: %#v\n", ws)
+}
 
 // func RestorePartialState(path string, t *testing.T) {
 
@@ -147,19 +144,7 @@ func CleanUp(path string) error {
 // 	fmt.Printf("restored: %#v\n", ws)
 // }
 
-func WriteFullAndDelta(path string, t *testing.T) {
-
-	fs, err := NewFS_OS("checkpoint_test")
-	if err != nil {
-		t.Fatal(err)
-		return
-	}
-
-	err = fs.Init()
-	if err != nil {
-		t.Fatal(err)
-	}
-
+func WriteFullAndDelta(fs Persistence, t *testing.T) {
 	db, err := NewStateDB(fs)
 	if err != nil {
 		t.Fatal(err)
@@ -186,11 +171,11 @@ func WriteFullAndDelta(path string, t *testing.T) {
 				resp <- kt
 				t.Fatal(err)
 			}
-			if i%2 == 0 {
-				if err := db.checkpoint(); err != nil {
-					t.Fatal(err)
-				}
-			}
+			// if i%2 == 0 {
+			// 	if err := db.forceCheckpoint(); err != nil {
+			// 		t.Fatal(err)
+			// 	}
+			// }
 
 			m.m.K = kt.StringID() + "test"
 			wg.Done()
@@ -198,6 +183,7 @@ func WriteFullAndDelta(path string, t *testing.T) {
 		}(m, &wg, i)
 	}
 	wg.Wait()
+	db.forceCheckpoint()
 	for i, _ := range weird {
 		// for i := 0; i < n; i++ {
 		kt := <-resp
@@ -209,7 +195,7 @@ func WriteFullAndDelta(path string, t *testing.T) {
 				t.Fatal(err)
 			}
 
-			if err := db.checkpoint(); err != nil {
+			if err := db.forceCheckpoint(); err != nil {
 				t.Fatal(err)
 			}
 		}
@@ -221,7 +207,7 @@ func WriteFullAndDelta(path string, t *testing.T) {
 			}
 		}
 		if i%2 == 0 {
-			if err := db.checkpoint(); err != nil {
+			if err := db.forceCheckpoint(); err != nil {
 				t.Fatal(err)
 			}
 		}
@@ -236,14 +222,30 @@ func WriteFullAndDelta(path string, t *testing.T) {
 	}
 	// is not normally possible
 
-	db.checkpoint()
+	db.forceCheckpoint()
 }
 
 func TestCheckpoint(t *testing.T) {
 	path := "checkpoint_test"
-	defer CleanUp(path)
 
-	WriteFullAndDelta(path, t)
+	CleanUp(path)
 
-	// RestoreCheckpoint(path, t)
+	fs, err := NewFS_OS(path)
+	if err != nil {
+		t.Fatal(err)
+		return
+	}
+	// defer CleanUp(path)
+
+	err = fs.Init()
+	if err != nil {
+		t.Fatal(err)
+		return
+	}
+
+	WriteFullAndDelta(fs, t)
+
+	time.Sleep(time.Second * 1)
+	// RestoreCheckpoint(fs, t)
+
 }

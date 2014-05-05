@@ -90,7 +90,7 @@ func (ctx *Context) MutPath() string {
 }
 
 func (ctx *Context) DelPath() string {
-	return fmt.Sprintf("%d/del_%d.cpt", ctx.DCNT, ctx.DCNT)
+	return fmt.Sprintf("%d/del_%d.cpt", ctx.RCID, ctx.DCNT)
 }
 
 func (ctx *Context) CtxPath() string {
