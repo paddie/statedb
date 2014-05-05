@@ -55,9 +55,6 @@ type Persistence interface {
 
 func (db *StateDB) readyCheckpoint() bool {
 
-	// db.Lock()
-	// defer db.Unlock()
-
 	if db.ready || !db.restored {
 		return true
 	}
@@ -87,7 +84,7 @@ func NewStateDB(fs Persistence) (*StateDB, error) {
 			ctx:       NewContext(),
 		}
 	}
-	// db.fs = fs
+
 	db.sync_chan = make(chan *Msg)
 	db.comReqChan = make(chan *CommitReq)
 	db.comRespChan = make(chan *CommitResp)
@@ -156,10 +153,10 @@ func stateLoop(db *StateDB, fs Persistence) {
 		case so := <-db.op_chan:
 			kt := so.kt
 			if so.action == REMOVE {
-				fmt.Println("received delete: " + kt.String())
+				// fmt.Println("received delete: " + kt.String())
 				so.err <- db.remove(kt)
 			} else if so.action == INSERT {
-				fmt.Println("received insert: " + kt.String())
+				// fmt.Println("received insert: " + kt.String())
 				so.err <- db.insert(kt, so.imm, so.mut)
 			} else {
 				so.err <- UnknownOperation //fmt.Errorf("Unknown Action: %d", so.action)

@@ -57,6 +57,8 @@ func (ctx *Context) Copy() *Context {
 	return &tmp
 }
 
+// Returns the most recent of the two provided contexts
+// by comparing first RCID and then MCNT
 func MostRecent(c1, c2 *Context) *Context {
 	if c1.RCID > c2.RCID {
 		return c1
@@ -99,7 +101,7 @@ func (ctx *Context) CtxPath() string {
 
 func (ctx *Context) DeltaPaths() []string {
 	paths := make([]string, 0, ctx.DCNT)
-	for i := 0; i < ctx.DCNT; i++ {
+	for i := 1; i <= ctx.DCNT; i++ {
 		paths = append(paths, fmt.Sprintf("%d/del_%d.cpt", ctx.RCID, i))
 	}
 	return paths
@@ -123,35 +125,3 @@ func (c *Context) FlipCtxID() {
 		c.CtxID = 1
 	}
 }
-
-// func (c *Context) AddRCID(v int) {
-// 	c.RCID += v
-// }
-
-// func (c *Context) SetRCID(v int) {
-// 	c.RCID = v
-// }
-
-// // func (c *Context) DCNT() int {
-// // 	return c.DCNT
-// // }
-
-// func (c *Context) AddDCNT(v int) {
-// 	c.DCNT += v
-// }
-
-// func (c *Context) SetDCNT(v int) {
-// 	c.DCNT = v
-// }
-
-// // func (c *Context) MCNT() int {
-// // 	return c.MCNT
-// // }
-
-// func (c *Context) AddMCNT(v int) {
-// 	c.MCNT += v
-// }
-
-// func (c *Context) SetMCNT(v int) {
-// 	c.MCNT = v
-// }
