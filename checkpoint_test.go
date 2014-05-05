@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"os"
 	// "reflect"
-	// "runtime"
+	"runtime"
 	"sync"
 	"testing"
 	"time"
@@ -53,7 +53,7 @@ var weird []*Weird
 
 func init() {
 
-	// runtime.GOMAXPROCS(4)
+	runtime.GOMAXPROCS(4)
 
 	main = []*Main{
 		{ID: 1, Tmp: 1},
