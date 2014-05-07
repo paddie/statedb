@@ -21,7 +21,7 @@ type Trace struct {
 	From, To       time.Time
 	Max, Min       float64
 	Duration       time.Duration
-	latest         *PricePoint
+	Latest         *PricePoint
 	Prices         []float64 // Cost
 	AbsPriceChange []float64 // price change
 	PriceChange    []float64
@@ -51,7 +51,7 @@ func (t *Trace) AddAll(items []*ec2.SpotPriceItem) error {
 
 func (t *Trace) Add(item *ec2.SpotPriceItem) error {
 
-	if t.latest == nil {
+	if t.Latest == nil {
 		t.From = item.Timestamp
 		t.To = item.Timestamp
 		t.Duration = time.Second * 0
@@ -59,7 +59,7 @@ func (t *Trace) Add(item *ec2.SpotPriceItem) error {
 		t.Min = item.SpotPrice
 
 		// save as reference for later changes
-		t.latest = &PricePoint{
+		t.Latest = &PricePoint{
 			SpotPrice: item.SpotPrice,
 			TimeStamp: item.Timestamp,
 			Key:       item.Key(),
@@ -74,13 +74,13 @@ func (t *Trace) Add(item *ec2.SpotPriceItem) error {
 		return nil
 	}
 
-	if t.latest.TimeStamp.After(item.Timestamp) {
+	if t.Latest.TimeStamp.After(item.Timestamp) {
 		return OutOfSequenceError
 	}
 
 	// check for spot price difference first
 	// - it is faster to compare!
-	if t.latest.SpotPrice == item.SpotPrice || !t.latest.TimeStamp.Before(item.Timestamp) {
+	if t.Latest.SpotPrice == item.SpotPrice || !t.Latest.TimeStamp.Before(item.Timestamp) {
 		return nil
 	}
 
@@ -97,12 +97,12 @@ func (t *Trace) Add(item *ec2.SpotPriceItem) error {
 
 	// insert into series
 	t.Prices = append(t.Prices, item.SpotPrice)
-	t.AbsPriceChange = append(t.PriceChange, math.Abs(t.latest.SpotPrice-item.SpotPrice))
-	t.PriceChange = append(t.PriceChange, t.latest.SpotPrice-item.SpotPrice)
+	t.AbsPriceChange = append(t.PriceChange, math.Abs(t.Latest.SpotPrice-item.SpotPrice))
+	t.PriceChange = append(t.PriceChange, t.Latest.SpotPrice-item.SpotPrice)
 	t.Times = append(t.Times, item.Timestamp)
-	t.TimeChanges = append(t.TimeChanges, item.Timestamp.Sub(t.latest.TimeStamp).Minutes())
+	t.TimeChanges = append(t.TimeChanges, item.Timestamp.Sub(t.Latest.TimeStamp).Minutes())
 
-	t.latest = &PricePoint{
+	t.Latest = &PricePoint{
 		SpotPrice: item.SpotPrice,
 		TimeStamp: item.Timestamp,
 	}

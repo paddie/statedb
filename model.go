@@ -7,18 +7,16 @@ import (
 	"time"
 )
 
-type CheckpointQuery struct {
-	t_processed time.Duration
-	t_avg_sync  time.Duration
-	cptChan     chan bool
-}
-
 type Model interface {
 	Name() string
 	// Before calling Start, the model is called with
 	// a trace of the past 3 months of the specific instance
 	// type
-	Train(*monitor.Trace) error
+	Train(t *monitor.Trace, bid float64) error
+	PriceUpdate(price float64) error
+	StatUpdate(stat Stat) error
+	Checkpoint(running_t, t_p time.Duration) (bool, error)
+	Quit() error
 	// Init takes a channel of *Stat updates
 	// and a channel of PricePoint updates.
 	// - A stat is sent when:
@@ -30,10 +28,34 @@ type Model interface {
 	// 1) time since the last checkpoint, eg. the amount of work
 	//    that has to be recomputed in case of a crash
 	// 2) the average time between consistent states
-	Start(statChan <-chan Stat, priceChan <-chan monitor.PricePoint, cptQueryChan <-chan *CheckpointQuery, quit chan bool, errChan chan<- error)
 }
 
-func Educate(m Model, s *monitor.EC2Instance, nx *ModelNexus) {
+type ModelNexus struct {
+	errChan      chan error
+	statChan     chan Stat
+	cptQueryChan chan *CheckpointQuery
+	quitChan     chan bool
+}
+
+func NewModelNexus() *ModelNexus {
+	return &ModelNexus{
+		statChan:     make(chan Stat, 1),
+		cptQueryChan: make(chan *CheckpointQuery),
+		errChan:      make(chan error),
+		quitChan:     make(chan bool),
+	}
+}
+
+func (nx *ModelNexus) Quit() {
+	// send quit signal to model
+	nx.quitChan <- true
+	// shut down all sending channels..
+	close(nx.statChan)
+	close(nx.cptQueryChan)
+	close(nx.quitChan)
+}
+
+func Educate(model Model, s *monitor.EC2Instance, nx *ModelNexus) {
 
 	to := time.Now()
 	from := to.AddDate(0, -3, 0)
@@ -44,19 +66,49 @@ func Educate(m Model, s *monitor.EC2Instance, nx *ModelNexus) {
 		return
 	}
 
-	if err := m.Train(trace); err != nil {
+	if err := model.Train(trace); err != nil {
 		nx.errChan <- err
 		return
 	}
 
-	nx.monitor, err = monitor.NewMonitor(s, 5*time.Minute)
+	m, err := monitor.NewMonitor(s, 5*time.Minute)
 	if err != nil {
 		nx.errChan <- err
 		return
 	}
 
-	// enter model loop
 	fmt.Printf("Starting model <%s>\n", m.Name())
 
-	m.Start(nx.statChan, nx.monitor.C, nx.cptQueryChan, nx.quitChan, nx.errChan)
+	for {
+		select {
+		case q := <-nx.cptQueryChan:
+			do, err := model.Checkpoint(
+				q.t_processed,
+				q.t_avg_sync)
+			if err != nil {
+				nx.errChan <- err
+			}
+			q.cptChan <- do
+		case p := <-nx.priceChan:
+			err := model.PriceUpdate(p)
+			if err != nil {
+				nx.errChan <- err
+			}
+		case s := <-statChan:
+			err := model.StatUpdate(s)
+			if err != nil {
+				nx.errChan <- err
+			}
+		case _ = <-nx.quitChan:
+			// shut down monitor..
+			m.QuitBlock()
+			// shut down model..
+			err := model.Quit()
+			if err != nil {
+				nx.errChan <- err
+			}
+			fmt.Println("Exiting from Model")
+			return
+		}
+	}
 }

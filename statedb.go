@@ -35,21 +35,12 @@ type StateDB struct {
 	delta     DeltaTypeMap  // static state delta
 	mutable   MutKeyTypeMap // mutable state
 	// Synchronization channels
-	op_chan      chan *StateOperation // handles insert and remove operations
-	comReqChan   chan *CommitReq
-	comRespChan  chan *CommitResp
+	op_chan chan *StateOperation // handles insert and remove operations
+	// comReqChan   chan *CommitReq
+	// comRespChan  chan *CommitResp
 	quit         chan chan error // shutdown signals
 	sync_chan    chan *Msg       // consistent state signals are sent on this channel
 	sync.RWMutex                 // for synchronizing things that don't need the channels..
-}
-
-// Interface to checkpoint data to non-volatile memory
-type Persistence interface {
-	List(prefix string) ([]string, error) // list items in dir
-	Put(name string, data []byte) error   // create/overwrite file
-	Get(name string) ([]byte, error)      // get file
-	Delete(path string) error             // delete file
-	Init() error                          // ensure that directory/bucket exists
 }
 
 func (db *StateDB) readyCheckpoint() bool {
@@ -71,11 +62,11 @@ func (db *StateDB) readyCheckpoint() bool {
 	return true
 }
 
-func NewStateDB(fs Persistence, m Model, i *monitor.EC2Instance) (*StateDB, error) {
+func NewStateDB(fs Persistence, m Model, s *monitor.EC2Instance) (*StateDB, error) {
 
 	// Initialize the directories
 	db, err := restore(fs)
-	if err != nil {
+	if db == nil || err != nil {
 		db = &StateDB{
 			immutable: make(ImmKeyTypeMap),
 			mutable:   make(MutKeyTypeMap),
@@ -85,13 +76,16 @@ func NewStateDB(fs Persistence, m Model, i *monitor.EC2Instance) (*StateDB, erro
 	}
 
 	db.sync_chan = make(chan *Msg)
-	db.comReqChan = make(chan *CommitReq)
-	db.comRespChan = make(chan *CommitResp)
 	db.op_chan = make(chan *StateOperation)
 	db.quit = make(chan chan error)
-	// db.cpt_chan = make(chan time.Time)
 
-	go stateLoop(db, fs, m, i)
+	cnx := NewCommitNexus()
+	go commitLoop(fs, cnx)
+
+	mnx := NewModelNexus()
+	go Educate(m, s, nx)
+
+	go stateLoop(db, mxn, cxn)
 	return db, nil
 }
 

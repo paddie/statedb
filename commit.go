@@ -10,6 +10,15 @@ const (
 	DELTACPT = 5
 )
 
+// Interface to checkpoint data to non-volatile memory
+type Persistence interface {
+	List(prefix string) ([]string, error) // list items in dir
+	Put(name string, data []byte) error   // create/overwrite file
+	Get(name string) ([]byte, error)      // get file
+	Delete(path string) error             // delete file
+	Init() error                          // ensure that directory/bucket exists
+}
+
 type CommitReq struct {
 	cpt_type int
 	ctx      *Context
@@ -31,7 +40,6 @@ type CommitResp struct {
 }
 
 func (r *CommitResp) Err() error {
-
 	if r.cpt_type == ZEROCPT {
 		return fmt.Errorf("ZEROCPT:\n\timmutable: %s\n\tmutable: %s", r.imm_err.Error(), r.mut_err.Error())
 	} else {
@@ -48,10 +56,26 @@ type TimedCommit struct {
 	err error
 }
 
-func commitLoop(fs Persistence, req chan *CommitReq, comResp chan *CommitResp) {
+type CommitNexus struct {
+	comReqChan  chan *CommitReq
+	comRespChan chan *CommitResp
+}
+
+func NewCommitNexus() *CommitNexus {
+	return &CommitNexus{
+		comReqChan:  make(chan *CommitReq),
+		comRespChan: make(chan *CommitResp),
+	}
+}
+
+func (c *CommitNexus) Quit() {
+	close(c.comReqChan)
+}
+
+func commitLoop(fs Persistence, cnx *CommitNexus) {
 
 	t_comm := make(chan *TimedCommit)
-	for r := range req {
+	for r := range cnx.comReqChan {
 
 		c := &CommitResp{
 			cpt_type: r.cpt_type,
@@ -60,7 +84,6 @@ func commitLoop(fs Persistence, req chan *CommitReq, comResp chan *CommitResp) {
 
 		// send the values on different goroutines
 		// to minimize blocking
-		// errChan := make(chan error)
 		go async_commit(fs, r.ctx.MutPath(), r.mut, t_comm)
 		// commit either the immutable or the delta depending on the type of
 		// checkpoint
@@ -77,7 +100,7 @@ func commitLoop(fs Persistence, req chan *CommitReq, comResp chan *CommitResp) {
 
 		// ctx_err is nil now
 		if !c.Success() {
-			comResp <- c
+			cnx.comResp <- c
 			continue
 		}
 		// encode the context and flip-flop to disk
@@ -85,10 +108,8 @@ func commitLoop(fs Persistence, req chan *CommitReq, comResp chan *CommitResp) {
 
 		// send back commit errors if any
 		fmt.Println("Comitted!")
-		comResp <- c
+		cnx.comRespChan <- c
 	}
-
-	fmt.Println("commitLoop exiting..")
 
 	close(comResp)
 }

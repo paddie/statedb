@@ -152,9 +152,9 @@ func WriteFullAndDelta(fs Persistence, t *testing.T) {
 	}
 
 	t_str := ReflectTypeM(&Weird{})
-	fmt.Println("type: " + t_str)
+	// fmt.Println("type: " + t_str)
 
-	fmt.Println("Type: " + t_str)
+	// fmt.Println("Type: " + t_str)
 
 	resp := make(chan *KeyType)
 	n := 0
@@ -165,7 +165,7 @@ func WriteFullAndDelta(fs Persistence, t *testing.T) {
 		n++
 		go func(m *Weird, wg *sync.WaitGroup, i int) {
 			kt, err := db.Insert(m)
-			fmt.Println(kt)
+			// fmt.Println(kt)
 			if err != nil {
 				wg.Done()
 				resp <- kt
@@ -203,7 +203,7 @@ func WriteFullAndDelta(fs Persistence, t *testing.T) {
 		// after 4 iterations, update the mutable bits
 		if i == 3 {
 			for i, w := range weird {
-				w.m.i = i
+				w.m.I = i
 			}
 		}
 		if i%2 == 0 {
