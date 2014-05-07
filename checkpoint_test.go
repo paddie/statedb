@@ -203,7 +203,7 @@ func WriteFullAndDelta(fs Persistence, t *testing.T) {
 		// after 4 iterations, update the mutable bits
 		if i == 3 {
 			for i, w := range weird {
-				w.m.I = i
+				w.m.i = i
 			}
 		}
 		if i%2 == 0 {

@@ -38,6 +38,7 @@ func restore(fs Persistence) (*StateDB, error) {
 	}
 	db.immutable = imm
 
+	// there should always be a mutable cpt really..
 	if ctx.MCNT > 0 {
 		mut, err := retrieveMutable(fs, ctx)
 		if err != nil {

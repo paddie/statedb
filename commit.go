@@ -30,16 +30,17 @@ type CommitResp struct {
 	del_dur  time.Duration
 }
 
-func (c *CommitResp) Success() bool {
-	return c.del_err == nil && c.mut_err == nil && c.imm_err == nil && c.ctx_err == nil
+func (r *CommitResp) Err() error {
+
+	if r.cpt_type == ZEROCPT {
+		return fmt.Errorf("ZEROCPT:\n\timmutable: %s\n\tmutable: %s", r.imm_err.Error(), r.mut_err.Error())
+	} else {
+		return fmt.Errorf("∆CPT:\n\t∆: %s\n\tmut: %s", r.del_err.Error(), r.mut_err.Error())
+	}
 }
 
-func (r *CommitResp) Error() string {
-	if r.cpt_type == ZEROCPT {
-		return fmt.Sprintf("ZEROCPT:\n\timmutable: %s\n\tmutable: %s", r.imm_err.Error(), r.mut_err.Error())
-	} else {
-		return fmt.Sprintf("∆CPT:\n\t∆: %s\n\tmut: %s", r.del_err.Error(), r.mut_err.Error())
-	}
+func (c *CommitResp) Success() bool {
+	return c.del_err == nil && c.mut_err == nil && c.imm_err == nil && c.ctx_err == nil
 }
 
 type TimedCommit struct {

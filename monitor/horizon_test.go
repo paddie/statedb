@@ -9,7 +9,7 @@ import (
 	"time"
 )
 
-var desc *EC2InstanceDesc
+var desc *EC2Instance
 
 func init() {
 	runtime.GOMAXPROCS(4)
@@ -21,7 +21,7 @@ func init() {
 
 	s := ec2.New(auth, aws.EUWest)
 
-	desc, err = NewEC2InstanceDesc(s,
+	desc, err = NewEC2Instance(s,
 		"m1.medium",
 		"Linux/UNIX",
 		"eu-west-1b", nil)
@@ -39,7 +39,7 @@ func TestInvalidDesc(t *testing.T) {
 	}
 	s := ec2.New(auth, aws.EUWest)
 
-	d, err := NewEC2InstanceDesc(s, "adfg", "asdf", "asd", nil)
+	d, err := NewEC2Instance(s, "adfg", "asdf", "asd", nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -60,7 +60,7 @@ func TestEmptyDesc(t *testing.T) {
 	}
 	s := ec2.New(auth, aws.EUWest)
 
-	_, err = NewEC2InstanceDesc(s, "", "", "", nil)
+	_, err = NewEC2Instance(s, "", "", "", nil)
 	if err == nil {
 		t.Fatal("Blank arguments accepted")
 	}

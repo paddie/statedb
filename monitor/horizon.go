@@ -11,17 +11,17 @@ const (
 	MONTH = 60 * 24 * 30
 )
 
-type EC2InstanceDesc struct {
+type EC2Instance struct {
 	request *ec2.SpotPriceRequest
 	filter  *ec2.Filter
 	ec2     *ec2.EC2
 }
 
-func (s *EC2InstanceDesc) Key() string {
+func (s *EC2Instance) Key() string {
 	return fmt.Sprintf("%s.%s.%s", s.request.AvailabilityZone, s.request.InstanceType, s.request.ProductDescription)
 }
 
-func NewEC2InstanceDesc(s *ec2.EC2, instanceType, productDescription, availabilityZone string, filter *ec2.Filter) (*EC2InstanceDesc, error) {
+func NewEC2Instance(s *ec2.EC2, instanceType, productDescription, availabilityZone string, filter *ec2.Filter) (*EC2Instance, error) {
 
 	if filter == nil && (instanceType == "" ||
 		productDescription == "" ||
@@ -38,7 +38,7 @@ func NewEC2InstanceDesc(s *ec2.EC2, instanceType, productDescription, availabili
 		AvailabilityZone:   availabilityZone,
 	}
 
-	desc := &EC2InstanceDesc{
+	desc := &EC2Instance{
 		request: request,
 		ec2:     s,
 		filter:  filter,
@@ -47,7 +47,7 @@ func NewEC2InstanceDesc(s *ec2.EC2, instanceType, productDescription, availabili
 	return desc, nil
 }
 
-func (s *EC2InstanceDesc) GetPriceTrace(from, to time.Time) (*Trace, error) {
+func (s *EC2Instance) GetPriceTrace(from, to time.Time) (*Trace, error) {
 
 	// date must be non-zero
 	if from.IsZero() || to.IsZero() {
@@ -84,7 +84,7 @@ func (s *EC2InstanceDesc) GetPriceTrace(from, to time.Time) (*Trace, error) {
 	return trace, err
 }
 
-func (s *EC2InstanceDesc) GetHorizon(from time.Time) ([]*ec2.SpotPriceItem, error) {
+func (s *EC2Instance) GetHorizon(from time.Time) ([]*ec2.SpotPriceItem, error) {
 	to := time.Now()
 
 	// date must be non-zero

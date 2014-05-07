@@ -9,6 +9,7 @@ import (
 	// "encoding/gob"
 	"errors"
 	// "log"
+	"github.com/paddie/statedb/monitor"
 	"sync"
 )
 
@@ -34,14 +35,12 @@ type StateDB struct {
 	delta     DeltaTypeMap  // static state delta
 	mutable   MutKeyTypeMap // mutable state
 	// Synchronization channels
-	op_chan     chan *StateOperation // handles insert and remove operations
-	comReqChan  chan *CommitReq
-	comRespChan chan *CommitResp
-	quit        chan chan error // shutdown signals
-	// cpt_chan    chan time.Time  // checkpoint signals are sent on this channel
-	// comm_resp    chan *CommitResp
-	sync_chan    chan *Msg // consistent state signals are sent on this channel
-	sync.RWMutex           // for synchronizing things that don't need the channels..
+	op_chan      chan *StateOperation // handles insert and remove operations
+	comReqChan   chan *CommitReq
+	comRespChan  chan *CommitResp
+	quit         chan chan error // shutdown signals
+	sync_chan    chan *Msg       // consistent state signals are sent on this channel
+	sync.RWMutex                 // for synchronizing things that don't need the channels..
 }
 
 // Interface to checkpoint data to non-volatile memory
@@ -72,7 +71,7 @@ func (db *StateDB) readyCheckpoint() bool {
 	return true
 }
 
-func NewStateDB(fs Persistence) (*StateDB, error) {
+func NewStateDB(fs Persistence, m Model, i *monitor.EC2Instance) (*StateDB, error) {
 
 	// Initialize the directories
 	db, err := restore(fs)
@@ -92,84 +91,8 @@ func NewStateDB(fs Persistence) (*StateDB, error) {
 	db.quit = make(chan chan error)
 	// db.cpt_chan = make(chan time.Time)
 
-	go stateLoop(db, fs)
-
+	go stateLoop(db, fs, m, i)
 	return db, nil
-}
-
-func stateLoop(db *StateDB, fs Persistence) {
-	// true after a decoded state has been sent of to the
-	// commit process
-	committing := false
-	// true after a signal has come in on cpt_chan
-	cpt_notice := false
-	cpt_chan := make(chan time.Time)
-
-	go commitLoop(fs, db.comReqChan, db.comRespChan)
-
-	for {
-		select {
-		case msg := <-db.sync_chan:
-			if committing {
-				msg.err <- ActiveCommitError
-				continue
-			}
-			// check if all mutable objects have been restored
-			// - only needs to be checked once, but is check subsequent times
-			if !db.readyCheckpoint() {
-				fmt.Println(NotRestoredError.Error())
-				msg.err <- NotRestoredError
-				continue
-			}
-			// if the checkpoint is not forced or
-			// the monitor has not given a cpt_notice
-			// the sync simply returns
-			if !msg.forceCPT && !cpt_notice {
-				msg.err <- nil
-				continue
-			}
-			// reset notice
-			// stupid heuristic for when to checkpoint
-			if err := db.checkpoint(); err != nil {
-				msg.err <- err
-				continue
-			}
-			msg.err <- nil
-			// wait for the response from the commits
-			r := <-db.comRespChan
-			if !r.Success() {
-				fmt.Println("Failed to checkpoint: ", r.Error())
-				continue
-			}
-
-			db.delta = nil
-			*db.ctx = *r.ctx
-			fmt.Println("Successfully committed checkpoint")
-			cpt_notice = false
-		case <-cpt_chan:
-			// set the checkpoint notice to force a checkpoint
-			// in the next consistent state
-			cpt_notice = true
-		case so := <-db.op_chan:
-			kt := so.kt
-			if so.action == REMOVE {
-				// fmt.Println("received delete: " + kt.String())
-				so.err <- db.remove(kt)
-			} else if so.action == INSERT {
-				// fmt.Println("received insert: " + kt.String())
-				so.err <- db.insert(kt, so.imm, so.mut)
-			} else {
-				so.err <- UnknownOperation //fmt.Errorf("Unknown Action: %d", so.action)
-			}
-		case err_chan := <-db.quit:
-			fmt.Println("Committing final checkpoint..")
-			err := db.zeroCheckpoint()
-			close(db.comReqChan)
-			err_chan <- err
-			fmt.Println("Checkpoint committed. Shutting down..")
-			return
-		}
-	}
 }
 
 func (db *StateDB) Types() []string {
@@ -179,12 +102,6 @@ func (db *StateDB) Types() []string {
 		ts = append(ts, t)
 	}
 	return ts
-}
-
-type Msg struct {
-	time     time.Time
-	err      chan error
-	forceCPT bool
 }
 
 type StateOperation struct {

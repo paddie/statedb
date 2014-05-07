@@ -8,17 +8,17 @@ import (
 )
 
 type Monitor struct {
-	s           *ec2.EC2              // ec2 server credentials
-	request     *ec2.SpotPriceRequest // base request
-	filter      *ec2.Filter
-	lastUpdated time.Time       // time of last update
-	C           chan PricePoint // channel for pricepoints
-	quitChan    chan bool       // channel to signal exit
-	ticker      *time.Ticker    // ticks every 'duration'
-	latest      *PricePoint     // last value that was changed the
+	s       *ec2.EC2              // ec2 server credentials
+	request *ec2.SpotPriceRequest // base request
+	filter  *ec2.Filter
+	// lastUpdated time.Time       // time of last update
+	C        chan PricePoint // channel for pricepoints
+	quitChan chan bool       // channel to signal exit
+	ticker   *time.Ticker    // ticks every 'duration'
+	Latest   *PricePoint     // last value that was changed the
 }
 
-func (s *EC2InstanceDesc) newMonitor(interval time.Duration) (*Monitor, error) {
+func NewMonitor(s *EC2Instance, interval time.Duration) (*Monitor, error) {
 
 	if interval < time.Minute {
 		return nil, fmt.Errorf("Monitor: Update interval cannot be less than one minute %v", interval)
@@ -81,10 +81,10 @@ func (m *Monitor) ChangeMonitor() {
 					TimeStamp: item.Timestamp,
 					Key:       item.Key(),
 				}
-				if m.latest == nil || (pp.SpotPrice != m.latest.SpotPrice &&
-					m.latest.TimeStamp.Before(pp.TimeStamp)) {
+				if m.Latest == nil || (pp.SpotPrice != m.Latest.SpotPrice &&
+					m.Latest.TimeStamp.Before(pp.TimeStamp)) {
 
-					m.latest = pp
+					m.Latest = pp
 					m.C <- *pp
 				}
 			}
