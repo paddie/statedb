@@ -68,7 +68,7 @@ func (e *Exponential) StatUpdate(s *Stat) error {
 	return nil
 }
 
-func (e *Exponential) PriceUpdate(p float64) error {
+func (e *Exponential) PriceUpdate(p float64, _ time.Time) error {
 	e.Price = p
 
 	return nil

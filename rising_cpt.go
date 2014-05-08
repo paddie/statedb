@@ -29,7 +29,7 @@ func (r *RisingEdge) StatUpdate(_ *Stat) error {
 	return nil
 }
 
-func (r *RisingEdge) PriceUpdate(p float64) error {
+func (r *RisingEdge) PriceUpdate(p float64, _ time.Time) error {
 
 	if r.price < p {
 		r.risen = true
