@@ -25,7 +25,7 @@ func (r *RisingEdge) Train(trace *monitor.Trace, _ float64) error {
 	return nil
 }
 
-func (r *RisingEdge) StatUpdate(_ *Stat) error {
+func (r *RisingEdge) StatUpdate(_ Stat) error {
 	return nil
 }
 
@@ -33,6 +33,8 @@ func (r *RisingEdge) PriceUpdate(p float64, _ time.Time) error {
 
 	if r.price < p {
 		r.risen = true
+	} else {
+		r.risen = false
 	}
 	r.price = p
 
