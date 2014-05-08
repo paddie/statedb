@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	// "reflect"
+	// "github.com/paddie/statedb/heuristic"
 	"runtime"
 	"sync"
 	"testing"
@@ -247,5 +248,4 @@ func TestCheckpoint(t *testing.T) {
 
 	time.Sleep(time.Second * 1)
 	// RestoreCheckpoint(fs, t)
-
 }

@@ -75,13 +75,13 @@ func (c *CommitNexus) Quit() {
 func commitLoop(fs Persistence, cnx *CommitNexus) {
 
 	t_comm := make(chan *TimedCommit)
+	// for will loop until the channel is closed
+	// by cnx.Close()
 	for r := range cnx.comReqChan {
-
 		c := &CommitResp{
 			cpt_type: r.cpt_type,
 			ctx:      r.ctx,
 		}
-
 		// send the values on different goroutines
 		// to minimize blocking
 		go async_commit(fs, r.ctx.MutPath(), r.mut, t_comm)
@@ -100,7 +100,7 @@ func commitLoop(fs Persistence, cnx *CommitNexus) {
 
 		// ctx_err is nil now
 		if !c.Success() {
-			cnx.comResp <- c
+			cnx.comRespChan <- c
 			continue
 		}
 		// encode the context and flip-flop to disk
@@ -111,7 +111,7 @@ func commitLoop(fs Persistence, cnx *CommitNexus) {
 		cnx.comRespChan <- c
 	}
 
-	close(comResp)
+	close(cnx.comRespChan)
 }
 
 func commitContext(fs Persistence, ctx *Context) error {

@@ -25,6 +25,7 @@ type Context struct {
 	DCNT  int // delta count - the number of delta checkpoints since the last reference checkpoint
 	MCNT  int // mutable checkpoints since the last reference checkpoint
 	CtxID int //  0 or 1
+	Type  int
 }
 
 func (ctx *Context) newDeltaContext() *Context {
@@ -32,6 +33,7 @@ func (ctx *Context) newDeltaContext() *Context {
 		panic("Attempted to commit incremental checkpoint without a reference checkpoint")
 	}
 	tmp := ctx.Copy()
+	tmp.Type = DELTACPT
 	tmp.MCNT += 1
 	tmp.FlipCtxID()
 	// tmp.info.mcnt++
@@ -43,6 +45,7 @@ func (ctx *Context) newDeltaContext() *Context {
 
 func (ctx *Context) newZeroContext() *Context {
 	tmp := ctx.Copy()
+	tmp.Type = ZEROCPT
 	tmp.FlipCtxID()
 	tmp.RCID += 1
 	tmp.MCNT = 1
@@ -108,15 +111,15 @@ func (ctx *Context) DeltaPaths() []string {
 }
 
 // When restoring, this helps identify the type of the final checkpoint.
-func (ctx *Context) Type() string {
-	if ctx.RCID > 0 {
-		if ctx.MCNT > 0 {
-			return "DeltaCPT"
-		}
-		return "ZeroCPT"
-	}
-	return "ZeroCPT"
-}
+// func (ctx *Context) Type() string {
+// 	if ctx.RCID > 0 {
+// 		if ctx.MCNT > 0 {
+// 			return "DeltaCPT"
+// 		}
+// 		return "ZeroCPT"
+// 	}
+// 	return "ZeroCPT"
+// }
 
 func (c *Context) FlipCtxID() {
 	if c.CtxID == 1 {

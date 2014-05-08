@@ -62,7 +62,7 @@ func (db *StateDB) readyCheckpoint() bool {
 	return true
 }
 
-func NewStateDB(fs Persistence, m Model, s *monitor.EC2Instance) (*StateDB, error) {
+func NewStateDB(fs Persistence, m Model, s *monitor.EC2Instance, bid float64) (*StateDB, error) {
 
 	// Initialize the directories
 	db, err := restore(fs)
@@ -83,9 +83,9 @@ func NewStateDB(fs Persistence, m Model, s *monitor.EC2Instance) (*StateDB, erro
 	go commitLoop(fs, cnx)
 
 	mnx := NewModelNexus()
-	go Educate(m, s, nx)
+	go educate(m, s, mnx, bid)
 
-	go stateLoop(db, mxn, cxn)
+	go stateLoop(db, mnx, cnx)
 	return db, nil
 }
 

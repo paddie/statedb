@@ -13,33 +13,22 @@ type Model interface {
 	// a trace of the past 3 months of the specific instance
 	// type
 	Train(t *monitor.Trace, bid float64) error
-	PriceUpdate(price float64) error
-	StatUpdate(stat Stat) error
-	Checkpoint(running_t, t_p time.Duration) (bool, error)
+	PriceUpdate(cost float64, datetime time.Time) error
+	StatUpdate(restartTimeMinutes, checkpointTimeMinutes float64) error
+	Checkpoint(minutesSinceCpt, avgSyncTimeMinutes, AliveMinutes float64) (bool, error)
 	Quit() error
-	// Init takes a channel of *Stat updates
-	// and a channel of PricePoint updates.
-	// - A stat is sent when:
-	//     1) A Zero- or Delta checkpoint has been committed
-	//     2) An object was inserted or removed
-	// - A PricePoint is sent when the monitor detects a price
-	// change
-	// Checkpoint takes two arguments:
-	// 1) time since the last checkpoint, eg. the amount of work
-	//    that has to be recomputed in case of a crash
-	// 2) the average time between consistent states
 }
 
 type ModelNexus struct {
 	errChan      chan error
-	statChan     chan Stat
+	statChan     chan *Stat
 	cptQueryChan chan *CheckpointQuery
 	quitChan     chan bool
 }
 
 func NewModelNexus() *ModelNexus {
 	return &ModelNexus{
-		statChan:     make(chan Stat, 1),
+		statChan:     make(chan *Stat, 1),
 		cptQueryChan: make(chan *CheckpointQuery),
 		errChan:      make(chan error),
 		quitChan:     make(chan bool),
@@ -55,7 +44,7 @@ func (nx *ModelNexus) Quit() {
 	close(nx.quitChan)
 }
 
-func Educate(model Model, s *monitor.EC2Instance, nx *ModelNexus) {
+func educate(model Model, s *monitor.EC2Instance, nx *ModelNexus, bid float64) {
 
 	to := time.Now()
 	from := to.AddDate(0, -3, 0)
@@ -66,7 +55,7 @@ func Educate(model Model, s *monitor.EC2Instance, nx *ModelNexus) {
 		return
 	}
 
-	if err := model.Train(trace); err != nil {
+	if err := model.Train(trace, bid); err != nil {
 		nx.errChan <- err
 		return
 	}
@@ -77,25 +66,26 @@ func Educate(model Model, s *monitor.EC2Instance, nx *ModelNexus) {
 		return
 	}
 
-	fmt.Printf("Starting model <%s>\n", m.Name())
+	fmt.Printf("Starting model <%s>\n", model.Name())
 
 	for {
 		select {
 		case q := <-nx.cptQueryChan:
 			do, err := model.Checkpoint(
-				q.t_processed,
-				q.t_avg_sync)
+				q.s.RestoreTime(),        // time to restore
+				q.s.ExpWriteCheckpoint(), // time to cpt
+				q.s.AvgSyncMinutes())     // avg. sync time
 			if err != nil {
 				nx.errChan <- err
 			}
 			q.cptChan <- do
-		case p := <-nx.priceChan:
-			err := model.PriceUpdate(p)
+		case pp := <-m.C:
+			err := model.PriceUpdate(pp.SpotPrice, pp.TimeStamp)
 			if err != nil {
 				nx.errChan <- err
 			}
-		case s := <-statChan:
-			err := model.StatUpdate(s)
+		case s := <-nx.statChan:
+			err := model.StatUpdate(s.RestoreTime(), s.ExpWriteCheckpoint())
 			if err != nil {
 				nx.errChan <- err
 			}

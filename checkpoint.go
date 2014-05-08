@@ -3,7 +3,7 @@ package statedb
 import (
 	// "encoding/gob"
 	"errors"
-	"fmt"
+	// "fmt"
 	// "log"
 	// "os"
 )
@@ -12,32 +12,24 @@ var (
 	NoDataError = errors.New("No Data to checkpoint")
 )
 
-func (db *StateDB) checkpoint() error {
+func (db *StateDB) checkpoint() (*CommitReq, error) {
 	// only returns encoding errors
 	// - commit errors are reported on db.err_can
 	// errChan := make(chan error)
-	var err error
 	if len(db.delta) == 0 {
-		err = db.deltaCheckpoint()
-	} else {
-		err = db.zeroCheckpoint()
+		return db.deltaCheckpoint()
 	}
 
-	if err != nil {
-		fmt.Println("Failed checkpointing: ", err)
-		return err
-	}
-
-	return nil
+	return db.zeroCheckpoint()
 }
 
 // Encodes the two databases delta and mutable
 // and passes the encoded data on to be committed
 // - returns immediately after encoding, and handles any commit errors
 //   in StateLoop
-func (db *StateDB) deltaCheckpoint() error {
+func (db *StateDB) deltaCheckpoint() (*CommitReq, error) {
 	if len(db.delta) == 0 && len(db.mutable) == 0 {
-		return NoDataError
+		return nil, NoDataError
 	}
 
 	r := &CommitReq{
@@ -52,28 +44,24 @@ func (db *StateDB) deltaCheckpoint() error {
 		r.ctx.DCNT += 1
 		r.del, err = encodeDelta(db.delta, r.ctx.DCNT)
 		if err != nil {
-			return err
+			return nil, err
 		}
 	}
 	r.mut, err = encodeMutable(db.mutable, db.ctx.MCNT)
 	if err != nil {
-		return err
+		return nil, err
 	}
 
-	// if encoding was successful, pass on to be
-	// committed to fs
-	db.comReqChan <- r
-
-	return nil
+	return r, nil
 }
 
 // The FullCheckpoint serves as a forced checkpoint of all the known states
 // - Assumes that the system is in a consistent state
 // - Checkpoints the Immutable and Mutable states, and empties the delta log.
-func (db *StateDB) zeroCheckpoint() error {
+func (db *StateDB) zeroCheckpoint() (*CommitReq, error) {
 	// nothing to commit, but not an error
 	if len(db.immutable) == 0 {
-		return NoDataError
+		return nil, NoDataError
 	}
 
 	r := &CommitReq{
@@ -84,14 +72,13 @@ func (db *StateDB) zeroCheckpoint() error {
 	var err error
 	r.imm, err = encodeImmutable(db.immutable)
 	if err != nil {
-		return err
+		return nil, err
 	}
 
 	r.mut, err = encodeMutable(db.mutable, db.ctx.MCNT)
 	if err != nil {
-		return err
+		return nil, err
 	}
 
-	db.comReqChan <- r
-	return nil
+	return r, nil
 }

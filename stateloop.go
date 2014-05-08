@@ -3,7 +3,7 @@ package statedb
 import (
 	"fmt"
 	// "github.com/paddie/goamz/ec2"
-	"github.com/paddie/statedb/monitor"
+	// "github.com/paddie/statedb/monitor"
 	"time"
 )
 
@@ -14,9 +14,8 @@ type Msg struct {
 }
 
 type CheckpointQuery struct {
-	t_processed time.Duration
-	t_avg_sync  time.Duration
-	cptChan     chan bool
+	s       *Stat
+	cptChan chan bool
 }
 
 // type StateNexus struct {
@@ -42,16 +41,20 @@ func stateLoop(db *StateDB, mnx *ModelNexus, cnx *CommitNexus) {
 	// Launch the commit thread in a different thread
 	// and
 
-	defer mxn.Quit()
+	defer mnx.Quit()
 	defer cnx.Quit()
+
+	stat := NewStat(3)
 
 	cptQ := &CheckpointQuery{
 		cptChan: make(chan bool),
+		s:       stat,
 	}
-	stat := &Stat{}
+
 	for {
 		select {
 		case msg := <-db.sync_chan:
+			stat.markSyncPoint()
 			// check if all mutable objects have been restored
 			// - only needs to be checked once, but is check subsequent times
 			if !db.readyCheckpoint() {
@@ -59,12 +62,11 @@ func stateLoop(db *StateDB, mnx *ModelNexus, cnx *CommitNexus) {
 				msg.err <- NotRestoredError
 				continue
 			}
-			// if the checkpoint is not forced or
-			// the monitor has not given a cpt_notice
-			// the sync simply returns
+			// only ask model to checkpoint if the forceCPT flag
+			// is not set
 			if !msg.forceCPT {
-				cptQ.t_avg_sync = stat.t_avg_sync
-				cptQ.t_processed = time.Now().Sub(stat.checkpoint_time)
+				// cptQ.t_avg_sync = stat.t_avg_sync
+				// cptQ.t_processed = time.Now().Sub(stat.checkpoint_time)
 				mnx.cptQueryChan <- cptQ
 
 				if cpt := <-cptQ.cptChan; cpt == false {
@@ -72,20 +74,40 @@ func stateLoop(db *StateDB, mnx *ModelNexus, cnx *CommitNexus) {
 					continue
 				}
 			}
-			// reset notice
-			// stupid heuristic for when to checkpoint
-			if err := db.checkpoint(); err != nil {
-				msg.err <- err
-				errChan <- err
+			// encode checkpoint
+			req, err := db.checkpoint()
+			if err != nil {
+				// do not report error if there is nothing
+				// to checkpoint
+				if err == NoDataError {
+					msg.err <- nil
+				} else {
+					msg.err <- err
+					// report global error
+					// - if we cannot encode, something is very wrong
+					errChan <- err
+				}
 				continue
 			}
+			// successfully encoded, return control to application while finishing commit
 			msg.err <- nil
+
+			cnx.comReqChan <- req
 			// wait for the response from the commits
+			// - we do not accept insert/deletes during this process
 			r := <-cnx.comRespChan
 			if !r.Success() {
 				errChan <- r.Err()
 				continue
 			}
+
+			if r.cpt_type == DELTACPT {
+				stat.deltaCPT(r.mut_dur, r.del_dur)
+			} else {
+				stat.zeroCPT(r.imm_dur, r.mut_dur)
+			}
+			// send copy of updated stat to model
+			mnx.statChan <- stat
 
 			// nil delta and update context
 			// to reflect state of checkpoint
@@ -102,11 +124,9 @@ func stateLoop(db *StateDB, mnx *ModelNexus, cnx *CommitNexus) {
 				}
 				// reply success
 				so.err <- nil
-
 				// Update and send stat
-				stat.Remove(1, 1)
-				mnx.statChan <- *stat
-
+				stat.remove(1, 1)
+				mnx.statChan <- stat
 			} else if so.action == INSERT {
 				// fmt.Println("received insert: " + kt.String())
 				err := db.insert(kt, so.imm, so.mut)
@@ -118,28 +138,33 @@ func stateLoop(db *StateDB, mnx *ModelNexus, cnx *CommitNexus) {
 				so.err <- nil
 
 				// Update and ship stat
-				stat.Insert(1, 1)
-				mnx.statChan <- *stat
+				stat.insert(1, 1)
+				mnx.statChan <- stat
 
 			} else {
-				so.err <- UnknownOperation //fmt.Errorf("Unknown Action: %d", so.action)
+				so.err <- UnknownOperation
+				errChan <- UnknownOperation
 			}
 		case respChan := <-db.quit:
 			fmt.Println("Committing final checkpoint..")
-			err := db.zeroCheckpoint()
+			req, err := db.zeroCheckpoint()
 			if err != nil {
+				if err == NoDataError {
+					err = nil
+				}
 				errChan <- err
 				respChan <- err
 				return
-			} else {
-				r := <-cnx.comRespChan
-				if !r.Success() {
-					respChan <- r.Err()
-				}
+			}
+			cnx.comReqChan <- req
+			resp := <-cnx.comRespChan
+			if !resp.Success() {
+				err := resp.Err()
+				respChan <- err
+				errChan <- err
 				return
 			}
 			fmt.Println("Checkpoint committed. Shutting down..")
-
 			respChan <- nil
 			return
 		}
