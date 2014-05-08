@@ -20,7 +20,7 @@ type AVGBuffer struct {
 
 func NewAVGBuffer(size int) *AVGBuffer {
 	return &AVGBuffer{
-		buff: make([]int64, 0, size),
+		buff: make([]float64, 0, size),
 	}
 }
 
