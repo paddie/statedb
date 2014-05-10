@@ -3,7 +3,7 @@ package statedb
 import (
 	// "errors"
 	"github.com/paddie/statedb/monitor"
-	// "time"
+	"time"
 )
 
 type RisingEdge struct {
@@ -30,7 +30,7 @@ func (r *RisingEdge) StatUpdate(_, _ float64) error {
 	return nil
 }
 
-func (r *RisingEdge) PriceUpdate(p float64, _ float64) error {
+func (r *RisingEdge) PriceUpdate(p float64, _ time.Time) error {
 
 	if r.price < p {
 		r.risen = true

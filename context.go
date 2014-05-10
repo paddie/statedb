@@ -20,6 +20,11 @@ var (
 	NoInfo = errors.New("No Info file exists")
 )
 
+// Every value is zeroed, so no need to set them
+func NewContext() *Context {
+	return &Context{}
+}
+
 type Context struct {
 	RCID  int // reference checkpoint id - the id of the current reference checkpoint
 	DCNT  int // delta count - the number of delta checkpoints since the last reference checkpoint
@@ -80,10 +85,6 @@ func MostRecent(c1, c2 *Context) *Context {
 
 func (ctx *Context) ID() string {
 	return fmt.Sprintf("%d.%d", ctx.RCID, ctx.MCNT)
-}
-
-func NewContext() *Context {
-	return &Context{}
 }
 
 func (ctx *Context) ImmPath() string {

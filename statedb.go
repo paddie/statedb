@@ -43,6 +43,10 @@ type StateDB struct {
 	sync.RWMutex                 // for synchronizing things that don't need the channels..
 }
 
+// func (db *StateDB) Restored() bool {
+// 	return db.restored
+// }
+
 func (db *StateDB) readyCheckpoint() bool {
 
 	if db.ready || !db.restored {
@@ -62,7 +66,7 @@ func (db *StateDB) readyCheckpoint() bool {
 	return true
 }
 
-func NewStateDB(fs Persistence, m Model, s *monitor.EC2Instance, bid float64) (*StateDB, error) {
+func NewStateDB(fs Persistence, m Model, s *monitor.EC2Instance, bid float64) (*StateDB, bool, error) {
 
 	// Initialize the directories
 	db, err := restore(fs)
@@ -86,7 +90,7 @@ func NewStateDB(fs Persistence, m Model, s *monitor.EC2Instance, bid float64) (*
 	go educate(m, s, mnx, bid)
 
 	go stateLoop(db, mnx, cnx)
-	return db, nil
+	return db, db.restored, nil
 }
 
 func (db *StateDB) Types() []string {

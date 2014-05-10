@@ -140,7 +140,6 @@ func stateLoop(db *StateDB, mnx *ModelNexus, cnx *CommitNexus) {
 				// Update and ship stat
 				stat.insert(1, 1)
 				mnx.statChan <- stat
-
 			} else {
 				so.err <- UnknownOperation
 				errChan <- UnknownOperation
