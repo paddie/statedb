@@ -3,7 +3,7 @@ package statedb
 import (
 	// "errors"
 	"fmt"
-	"github.com/paddie/statedb/monitor"
+	// "github.com/paddie/statedb/monitor"
 	"time"
 )
 
@@ -12,7 +12,7 @@ type Model interface {
 	// Before calling Start, the model is called with
 	// a trace of the past 3 months of the specific instance
 	// type
-	Train(t *monitor.Trace, bid float64) error
+	Train(trace []PricePoint, bid float64) error
 	PriceUpdate(cost float64, datetime time.Time) error
 	StatUpdate(restartTimeMinutes, checkpointTimeMinutes float64) error
 	Checkpoint(minutesSinceCpt, avgSyncTimeMinutes, AliveMinutes float64) (bool, error)
@@ -44,12 +44,12 @@ func (nx *ModelNexus) Quit() {
 	close(nx.quitChan)
 }
 
-func educate(model Model, s *monitor.EC2Instance, nx *ModelNexus, bid float64) {
+func educate(model Model, monitor Monitor, nx *ModelNexus, bid float64) {
 
 	to := time.Now()
 	from := to.AddDate(0, -3, 0)
 
-	trace, err := s.GetPriceTrace(from, to)
+	trace, err := monitor.Trace(from, to)
 	if err != nil {
 		nx.errChan <- err
 		return
@@ -60,11 +60,7 @@ func educate(model Model, s *monitor.EC2Instance, nx *ModelNexus, bid float64) {
 		return
 	}
 
-	m, err := monitor.NewMonitor(s, 5*time.Minute)
-	if err != nil {
-		nx.errChan <- err
-		return
-	}
+	C, errChan := monitor.Start(5 * time.Minute)
 
 	fmt.Printf("Starting model <%s>\n", model.Name())
 
@@ -79,7 +75,7 @@ func educate(model Model, s *monitor.EC2Instance, nx *ModelNexus, bid float64) {
 				nx.errChan <- err
 			}
 			q.cptChan <- do
-		case pp := <-m.C:
+		case pp := <-C:
 			err := model.PriceUpdate(pp.SpotPrice, pp.TimeStamp)
 			if err != nil {
 				nx.errChan <- err
@@ -91,9 +87,17 @@ func educate(model Model, s *monitor.EC2Instance, nx *ModelNexus, bid float64) {
 			}
 		case _ = <-nx.quitChan:
 			// shut down monitor..
-			m.QuitBlock()
+			monitor.Stop()
 			// shut down model..
 			err := model.Quit()
+			if err != nil {
+				nx.errChan <- err
+			}
+			fmt.Println("Exiting from Model")
+			return
+		case err := <-errChan:
+			nx.errChan <- err
+			err = model.Quit()
 			if err != nil {
 				nx.errChan <- err
 			}

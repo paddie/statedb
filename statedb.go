@@ -9,7 +9,7 @@ import (
 	// "encoding/gob"
 	"errors"
 	// "log"
-	"github.com/paddie/statedb/monitor"
+	// "github.com/paddie/statedb/monitor"
 	"sync"
 )
 
@@ -66,7 +66,7 @@ func (db *StateDB) readyCheckpoint() bool {
 	return true
 }
 
-func NewStateDB(fs Persistence, m Model, s *monitor.EC2Instance, bid float64) (*StateDB, bool, error) {
+func NewStateDB(fs Persistence, model Model, monitor Monitor, bid float64) (*StateDB, bool, error) {
 
 	// Initialize the directories
 	db, err := restore(fs)
@@ -87,7 +87,7 @@ func NewStateDB(fs Persistence, m Model, s *monitor.EC2Instance, bid float64) (*
 	go commitLoop(fs, cnx)
 
 	mnx := NewModelNexus()
-	go educate(m, s, mnx, bid)
+	go educate(model, monitor, mnx, bid)
 
 	go stateLoop(db, mnx, cnx)
 	return db, db.restored, nil
