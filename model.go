@@ -9,9 +9,6 @@ import (
 
 type Model interface {
 	Name() string
-	// Before calling Start, the model is called with
-	// a trace of the past 3 months of the specific instance
-	// type
 	Train(trace []PricePoint, bid float64) error
 	PriceUpdate(cost float64, datetime time.Time) error
 	StatUpdate(restartTimeMinutes, checkpointTimeMinutes float64) error
@@ -76,7 +73,7 @@ func educate(model Model, monitor Monitor, nx *ModelNexus, bid float64) {
 			}
 			q.cptChan <- do
 		case pp := <-C:
-			err := model.PriceUpdate(pp.SpotPrice, pp.TimeStamp)
+			err := model.PriceUpdate(pp.SpotPrice(), pp.TimeStamp())
 			if err != nil {
 				nx.errChan <- err
 			}

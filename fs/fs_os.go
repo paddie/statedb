@@ -1,4 +1,4 @@
-package statedb
+package fs
 
 import (
 	// "errors"
