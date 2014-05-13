@@ -28,7 +28,6 @@ import (
 
 // 	return nil
 // }
-
 // Deletes an object from StateDB
 // 1. Delete object from immutable TypeMap
 // 2. If the object CREATE is in Delta, delete the entry (object has now never existed)

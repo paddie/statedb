@@ -11,16 +11,13 @@ type Msg struct {
 	time     time.Time
 	err      chan error
 	forceCPT bool
+	// t        *CheckpointTrace
 }
 
 type CheckpointQuery struct {
 	s       *Stat
 	cptChan chan bool
 }
-
-// type StateNexus struct {
-// 	syncChan chan
-// }
 
 func stateLoop(db *StateDB, mnx *ModelNexus, cnx *CommitNexus) {
 	// true after a decoded state has been sent of to the
@@ -41,9 +38,6 @@ func stateLoop(db *StateDB, mnx *ModelNexus, cnx *CommitNexus) {
 	// Launch the commit thread in a different thread
 	// and
 
-	defer mnx.Quit()
-	defer cnx.Quit()
-
 	stat := NewStat(3)
 
 	cptQ := &CheckpointQuery{
@@ -54,27 +48,39 @@ func stateLoop(db *StateDB, mnx *ModelNexus, cnx *CommitNexus) {
 	for {
 		select {
 		case msg := <-db.sync_chan:
-			stat.markSyncPoint()
+			// checkpoint trace item
+			// t := msg.t
+			// stat.markSyncPoint()
 			// check if all mutable objects have been restored
 			// - only needs to be checked once, but is check subsequent times
 			if !db.readyCheckpoint() {
 				fmt.Println(NotRestoredError.Error())
 				msg.err <- NotRestoredError
+				// t.Abort()
 				continue
 			}
 			// only ask model to checkpoint if the forceCPT flag
 			// is not set
 			if !msg.forceCPT {
+				// fmt.Println("mdlstart")
+				// t.ModelStart()
 				// cptQ.t_avg_sync = stat.t_avg_sync
 				// cptQ.t_processed = time.Now().Sub(stat.checkpoint_time)
 				mnx.cptQueryChan <- cptQ
 
 				if cpt := <-cptQ.cptChan; cpt == false {
 					msg.err <- nil
+					// t.ModelEnd()
+					// t.Abort()
 					continue
 				}
+				// fmt.Println("mdlend")
+				// t.ModelEnd()
 			}
+
 			// encode checkpoint
+			// fmt.Println("encstart")
+			// t.EncodingStart()
 			req, err := db.checkpoint()
 			if err != nil {
 				// do not report error if there is nothing
@@ -87,15 +93,22 @@ func stateLoop(db *StateDB, mnx *ModelNexus, cnx *CommitNexus) {
 					// - if we cannot encode, something is very wrong
 					errChan <- err
 				}
+				// t.EncodingEnd()
+				// t.Abort()
 				continue
 			}
+			// fmt.Println("encend")
+			// t.EncodingEnd()
 			// successfully encoded, return control to application while finishing commit
 			msg.err <- nil
-
+			// fmt.Println("cptStart")
+			// t.CheckpointStart()
 			cnx.comReqChan <- req
 			// wait for the response from the commits
 			// - we do not accept insert/deletes during this process
 			r := <-cnx.comRespChan
+			// fmt.Println("cptEnd")
+			// t.CheckpointEnd()
 			if !r.Success() {
 				errChan <- r.Err()
 				continue
@@ -163,7 +176,17 @@ func stateLoop(db *StateDB, mnx *ModelNexus, cnx *CommitNexus) {
 				errChan <- err
 				return
 			}
+
 			fmt.Println("Checkpoint committed. Shutting down..")
+
+			mnx.Quit()
+			cnx.Quit()
+			err = db.tl.Write("stat")
+			if err != nil {
+				fmt.Println(err.Error())
+			}
+			fmt.Println("Done!")
+
 			respChan <- nil
 			return
 		}

@@ -33,6 +33,10 @@ func NewStat(buffSize int) *Stat {
 	}
 }
 
+func (s *Stat) Delta() int {
+	return s.d_i
+}
+
 func (s *Stat) AliveMinutes() float64 {
 	return time.Now().Sub(s.alive).Minutes()
 }
@@ -121,10 +125,12 @@ func (s *Stat) deltaCPT(m_dur, d_dur time.Duration) {
 	s.phi_m = s.t_m / float64(s.m)
 }
 
+// Time to restore from the precious checkpoint
 func (s *Stat) RestoreTime() float64 {
 	return s.t_r
 }
 
+// Expected write-time of a checkpoint
 func (s *Stat) ExpWriteCheckpoint() float64 {
 	if s.d_i > 0 {
 		return s.expWriteZero()
@@ -133,7 +139,7 @@ func (s *Stat) ExpWriteCheckpoint() float64 {
 }
 
 // Expected writing time of a delta-checkpoint
-// using the average write\approx read time
+// using the average write time
 // pr. entry in each database
 // Φ(W_∆) = T_M +∆_I ·φ_I +∆_M ·φ_M
 func (s *Stat) expWriteDelta() float64 {

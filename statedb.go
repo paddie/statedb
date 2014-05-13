@@ -41,6 +41,7 @@ type StateDB struct {
 	quit         chan chan error // shutdown signals
 	sync_chan    chan *Msg       // consistent state signals are sent on this channel
 	sync.RWMutex                 // for synchronizing things that don't need the channels..
+	tl           *TimeLine
 }
 
 // func (db *StateDB) Restored() bool {
@@ -82,6 +83,7 @@ func NewStateDB(fs Persistence, model Model, monitor Monitor, bid float64) (*Sta
 	db.sync_chan = make(chan *Msg)
 	db.op_chan = make(chan *StateOperation)
 	db.quit = make(chan chan error)
+	db.tl = NewTimeLine()
 
 	cnx := NewCommitNexus()
 	go commitLoop(fs, cnx)
@@ -113,23 +115,33 @@ type StateOperation struct {
 // Sync is a call for consistency; if the monitor has signalled a checkpoint
 // a checkpoint will be committed. During this time, we cannot allow any processes to
 // write or delete objects in the database.
-func (db *StateDB) sync() error {
+func (db *StateDB) Sync() error {
 	// response channel
 	err := make(chan error)
+	c := db.tl.Tick()
+	c.SyncStart()
 	db.sync_chan <- &Msg{
 		time: time.Now(),
 		err:  err,
+		// t:    c,
 	}
-	return <-err
+	e := <-err
+	c.SyncEnd()
+	return e
 }
 
 func (db *StateDB) forceCheckpoint() error {
 	err := make(chan error)
+	c := db.tl.Tick()
+	c.SyncStart()
+	defer c.SyncEnd()
 	db.sync_chan <- &Msg{
 		time:     time.Now(),
 		err:      err,
 		forceCPT: true,
+		// t:        c,
 	}
+
 	return <-err
 }
 
@@ -139,8 +151,12 @@ func (db *StateDB) Commit() error {
 
 	err := make(chan error)
 	fmt.Println("Commenceing final commit and shutdown..")
+
 	db.quit <- err
-	return <-err
+
+	e := <-err
+
+	return e
 }
 
 func (db *StateDB) insert(kt *KeyType, imm []byte, mut *MutState) error {

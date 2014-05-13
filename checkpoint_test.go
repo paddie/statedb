@@ -212,8 +212,11 @@ func WriteFullAndDelta(t *testing.T) {
 		t.Error("kt " + kt.String() + " was not deleted.")
 	}
 	// is not normally possible
-
-	db.forceCheckpoint()
+	fmt.Println("Ladida!")
+	err = db.Commit()
+	if err != nil {
+		t.Fatal(err)
+	}
 }
 
 func TestCheckpoint(t *testing.T) {

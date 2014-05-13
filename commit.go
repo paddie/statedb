@@ -8,6 +8,7 @@ import (
 const (
 	ZEROCPT  = 10
 	DELTACPT = 5
+	STATS    = 15
 )
 
 // Interface to checkpoint data to non-volatile memory
@@ -90,9 +91,14 @@ func commitLoop(fs Persistence, cnx *CommitNexus) {
 		if r.cpt_type == ZEROCPT {
 			fmt.Println("Received ZEROCPT")
 			c.imm_dur, c.imm_err = commit_t(fs, r.ctx.ImmPath(), r.imm)
-		} else if r.del != nil {
-			fmt.Println("Received ∆CPT")
-			c.del_dur, c.del_err = commit_t(fs, r.ctx.DelPath(), r.del)
+		} else if r.cpt_type == DELTACPT {
+			if r.del != nil {
+				fmt.Println("Received ∆CPT")
+				c.del_dur, c.del_err = commit_t(fs, r.ctx.DelPath(), r.del)
+			}
+		} else {
+			// // stats
+			// _, _ = commit_t(fs, "trace.cpt", c.trace)
 		}
 		// retrieve any error from committing the mutable
 		tm := <-t_comm

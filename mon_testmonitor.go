@@ -6,12 +6,13 @@ import (
 )
 
 type TestMonitor struct {
-	points []PricePoint
-	tick   *time.Ticker
-	active bool
+	points   []PricePoint
+	tick     *time.Ticker
+	active   bool
+	interval time.Duration
 }
 
-func NewTestMonitor() *TestMonitor {
+func NewTestMonitor(interval time.Duration) *TestMonitor {
 
 	prices := []float64{
 		1.2,
@@ -36,7 +37,9 @@ func NewTestMonitor() *TestMonitor {
 		1.0,
 	}
 
-	tm := &TestMonitor{}
+	tm := &TestMonitor{
+		interval: interval,
+	}
 
 	now := time.Now()
 	for i := 0; i < len(prices); i++ {
@@ -56,11 +59,12 @@ func (t *TestMonitor) Trace(_, _ time.Time) ([]PricePoint, error) {
 	return t.points, nil
 }
 
-func (t *TestMonitor) Start(interval time.Duration) (chan PricePoint, chan error) {
+// ignore the default interval 5 * time.Minute()
+func (t *TestMonitor) Start(_ time.Duration) (chan PricePoint, chan error) {
 
 	priceChan := make(chan PricePoint)
 
-	t.tick = time.NewTicker(interval)
+	t.tick = time.NewTicker(t.interval)
 	go pitcher(t.tick.C, t.points, priceChan)
 
 	t.active = true
