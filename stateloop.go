@@ -11,12 +11,13 @@ type Msg struct {
 	time     time.Time
 	err      chan error
 	forceCPT bool
-	// t        *CheckpointTrace
+	t        *CheckpointTrace
 }
 
 type CheckpointQuery struct {
 	s       *Stat
 	cptChan chan bool
+	// t       *CheckpointTrace
 }
 
 func stateLoop(db *StateDB, mnx *ModelNexus, cnx *CommitNexus) {
@@ -49,7 +50,7 @@ func stateLoop(db *StateDB, mnx *ModelNexus, cnx *CommitNexus) {
 		select {
 		case msg := <-db.sync_chan:
 			// checkpoint trace item
-			// t := msg.t
+			t := msg.t
 			// stat.markSyncPoint()
 			// check if all mutable objects have been restored
 			// - only needs to be checked once, but is check subsequent times
@@ -61,27 +62,29 @@ func stateLoop(db *StateDB, mnx *ModelNexus, cnx *CommitNexus) {
 			}
 			// only ask model to checkpoint if the forceCPT flag
 			// is not set
+			t.ModelStart()
 			if !msg.forceCPT {
 				// fmt.Println("mdlstart")
-				// t.ModelStart()
+
 				// cptQ.t_avg_sync = stat.t_avg_sync
 				// cptQ.t_processed = time.Now().Sub(stat.checkpoint_time)
+				t := msg.t
 				mnx.cptQueryChan <- cptQ
 
 				if cpt := <-cptQ.cptChan; cpt == false {
 					msg.err <- nil
 					// t.ModelEnd()
-					// t.Abort()
+					t.Abort()
 					continue
 				}
-				// fmt.Println("mdlend")
-				// t.ModelEnd()
 			}
+			t.ModelEnd()
 
 			// encode checkpoint
 			// fmt.Println("encstart")
 			// t.EncodingStart()
-			req, err := db.checkpoint()
+			t.EncodingStart()
+			req, err := db.encodeCheckpoint()
 			if err != nil {
 				// do not report error if there is nothing
 				// to checkpoint
@@ -93,10 +96,11 @@ func stateLoop(db *StateDB, mnx *ModelNexus, cnx *CommitNexus) {
 					// - if we cannot encode, something is very wrong
 					errChan <- err
 				}
-				// t.EncodingEnd()
-				// t.Abort()
+				t.Abort()
 				continue
 			}
+			t.EncodingEnd()
+
 			// fmt.Println("encend")
 			// t.EncodingEnd()
 			// successfully encoded, return control to application while finishing commit
@@ -159,7 +163,7 @@ func stateLoop(db *StateDB, mnx *ModelNexus, cnx *CommitNexus) {
 			}
 		case respChan := <-db.quit:
 			fmt.Println("Committing final checkpoint..")
-			req, err := db.zeroCheckpoint()
+			req, err := db.encodeZeroCheckpoint()
 			if err != nil {
 				if err == NoDataError {
 					err = nil

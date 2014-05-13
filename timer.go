@@ -9,29 +9,66 @@ import (
 )
 
 type TimeLine struct {
-	Start, End   time.Time
-	events       []*CheckpointTrace
-	Starts, Ends []time.Duration
-	Durations    []time.Duration
-	Cnt          int
+	Start  time.Time
+	End    time.Duration
+	events []*CheckpointTrace
+	// Sync traces
+	SyncStarts, SyncDurations []time.Duration
+	EncStart, EncDurations    []time.Duration
+	MdlStart, MdlDurations    []time.Duration
+	SyncCnt                   int
+	// Commit Traces
+	CommitStarts, CommitDurations []time.Duration
+	CmtCnt                        int
+	// Price Traces
+	PriceChanges []float64
+	PriceTimes   []time.Duration
+	PriceCnt     int
+	// inserts
+	InsertDurations  []time.Duration
+	Inserts, Removes int
+	RemoveDurations  []time.Duration
 	sync.Mutex
 }
 
+// We use time relative to the Start
+func (tl *TimeLine) time() time.Duration {
+	return time.Now().Sub(tl.Start)
+}
+
+// *********************************
+// PriceChanges - not synced
+// *********************************
+func (tl *TimeLine) PriceChange(c float64) {
+	tl.PriceChanges = append(tl.PriceChanges, c)
+	tl.PriceTimes = append(tl.PriceTimes, tl.time())
+}
+
+func (tl *TimeLine) Commit(start time.Time) {
+
+	dur := time.Now().Sub(start)
+
+	tl.CommitStarts = append(tl.CommitStarts, start.Sub(tl.Start))
+	tl.CommitDurations = append(tl.CommitDurations, dur)
+	tl.CmtCnt++
+}
+
 func (tl *TimeLine) Len() int {
-	return len(tl.Starts)
+	return len(tl.SyncStarts)
 }
 
 func (tl *TimeLine) XY(i int) (x, y float64) {
-	return float64(tl.Starts[i].Seconds()), float64(tl.Durations[i].Nanoseconds()) / 10e6
+	return tl.SyncStarts[i].Seconds(), tl.SyncDurations[i].Seconds()
 }
 
 func (tl *TimeLine) Write(path string) error {
-	f, err := os.Create("stat.do")
+	f, err := os.Create(path)
 	if err != nil {
 		return err
 	}
-	enc := json.NewEncoder(f)
+	defer f.Close()
 
+	enc := json.NewEncoder(f)
 	if err := enc.Encode(tl); err != nil {
 		return err
 	}
@@ -53,111 +90,104 @@ func (tl *TimeLine) Tick() *CheckpointTrace {
 	}
 
 	now := time.Now()
-	c := NewCheckpointTrace(tl, now)
+	c := NewCheckpointTrace(tl, tl.Start)
 	// increase the cnt for the next tick..
-	tl.Cnt++
+	tl.SyncCnt++
 
 	tl.Lock()
 	defer tl.Unlock()
 	tl.events = append(tl.events, c)
-	tl.Starts = append(tl.Starts, now.Sub(tl.Start))
-	tl.Ends = append(tl.Ends, time.Duration(0))
-	tl.Durations = append(tl.Durations, time.Duration(0))
+	tl.SyncStarts = append(tl.SyncStarts, now.Sub(tl.Start))
+	// placeholders
+	tl.SyncDurations = append(tl.SyncDurations, time.Duration(0))
+	tl.MdlDurations = append(tl.MdlDurations, time.Duration(0))
+	tl.EncDurations = append(tl.EncDurations, time.Duration(0))
 	return c
 }
 
 func (tl *TimeLine) Tock(c *CheckpointTrace) {
-	tl.Lock()
-	defer tl.Unlock()
-	tl.End = c.End
-	tl.Ends[c.id] = c.End.Sub(tl.Start)
-	tl.Durations[c.id] = tl.Ends[c.id] - tl.Starts[c.id]
+	// tl.Lock()
+	// defer tl.Unlock()
+	// tl.Starts[c.id] = c.Start
+	tl.SyncDurations[c.id] = c.Duration
+	tl.MdlDurations[c.id] = c.MdlDuration
+	tl.EncDurations[c.id] = c.EncDuration
 }
 
 type CheckpointTrace struct {
-	tl               *TimeLine
-	id               int
-	Aborted          bool
-	Start, End       time.Time
-	Total            time.Duration
-	SncStart, SncEnd time.Time
-	SyncDuration     time.Duration
-	// sync.Mutex
+	tl                     *TimeLine
+	id                     int
+	Aborted                bool
+	Start                  time.Time
+	Duration               time.Duration
+	SncStart, SyncDuration time.Duration
+	CptStart, CptDuration  time.Duration
+	EncStart, EncDuration  time.Duration
+	MdlStart, MdlDuration  time.Duration
 }
 
-func NewCheckpointTrace(tl *TimeLine, now time.Time) *CheckpointTrace {
+func (t *CheckpointTrace) time() time.Duration {
+	return time.Now().Sub(t.Start)
+}
+
+func NewCheckpointTrace(tl *TimeLine, start time.Time) *CheckpointTrace {
 	tc := &CheckpointTrace{
-		tl: tl,
-		id: tl.Cnt,
+		tl:    tl,
+		id:    tl.SyncCnt,
+		Start: start,
 	}
 	return tc
 }
 
-// func (t *CheckpointTrace) checkDone(now time.Time) {
+// func (t *CheckpointTrace) checkDone() {
 // 	t.Lock()
 // 	defer t.Unlock()
 
 // 	t.rem += 1
-// 	if t.rem == 4 {
-// 		t.End = now
-// 		t.Total = now.Sub(t.Start)
+// 	if t.rem == 2 {
+// 		t.Duration = t.time() - t.Start
 // 		t.tl.Tock(t)
 // 	}
 // }
 
-// func (t *CheckpointTrace) Abort() {
-// 	now := time.Now()
-// 	t.Aborted = true
-// 	t.End = now
-// 	t.Total = now.Sub(t.Start)
-// 	t.tl.Tock(t)
-// }
-
-func (t *CheckpointTrace) SyncStart() {
-	now := time.Now()
-	t.SncStart = now
-	t.Start = now
-}
-
-func (t *CheckpointTrace) SyncEnd() {
-	now := time.Now()
-	// defer t.checkDone(now)
-	t.SncEnd = now
-	t.SyncDuration = now.Sub(t.SncStart)
-	t.End = now
-	t.Total = now.Sub(t.Start)
+func (t *CheckpointTrace) Abort() {
+	// now := time.Now()
+	t.Aborted = true
+	// t.End = now
+	// t.Total = now.Sub(t.Start)
 	t.tl.Tock(t)
 }
 
-// func (t *CheckpointTrace) EncodingStart() {
-// 	t.EncStart = time.Now()
-// }
+func (t *CheckpointTrace) SyncStart() {
+	t.SncStart = t.time()
+}
 
-// func (t *CheckpointTrace) EncodingEnd() {
-// 	now := time.Now()
-// 	defer t.checkDone(now)
-// 	t.EncEnd = now
-// 	t.EncDuration = now.Sub(t.EncStart)
-// }
+func (t *CheckpointTrace) SyncEnd() {
+	t.SyncDuration = t.time() - t.SncStart
+	// t.checkDone()
+}
 
-// func (t *CheckpointTrace) ModelStart() {
-// 	t.MdlStart = time.Now()
-// }
+func (t *CheckpointTrace) EncodingEnd() {
+	t.EncDuration = t.time() - t.EncStart
+}
 
-// func (t *CheckpointTrace) ModelEnd() {
-// 	now := time.Now()
-// 	defer t.checkDone(now)
-// 	t.MdlEnd = now
-// 	t.MdlDuration = now.Sub(t.MdlStart)
-// }
+func (t *CheckpointTrace) EncodingStart() {
+	t.EncStart = t.time()
+}
 
-// func (t *CheckpointTrace) CheckpointStart() {
-// 	t.CptStart = time.Now()
-// }
+func (t *CheckpointTrace) ModelStart() {
+	t.MdlStart = t.time()
+}
 
-// func (t *CheckpointTrace) CheckpointEnd() {
-// 	now := time.Now()
-// 	defer t.checkDone(now)
-// 	t.CptEnd = now
-// 	t.CptDuration = now.Sub(t.CptStart)
-// }
+func (t *CheckpointTrace) ModelEnd() {
+	t.MdlDuration = t.time() - t.MdlStart
+}
+
+func (t *CheckpointTrace) CommitStart() {
+	t.CptStart = t.time()
+}
+
+func (t *CheckpointTrace) CommitEnd() {
+	t.CptDuration = t.time() - t.CptStart
+	// defer t.checkDone()
+}

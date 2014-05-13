@@ -79,6 +79,8 @@ func commitLoop(fs Persistence, cnx *CommitNexus) {
 	// for will loop until the channel is closed
 	// by cnx.Close()
 	for r := range cnx.comReqChan {
+		// r.t.CommitStart()
+		start := time.Now()
 		c := &CommitResp{
 			cpt_type: r.cpt_type,
 			ctx:      r.ctx,
@@ -114,6 +116,8 @@ func commitLoop(fs Persistence, cnx *CommitNexus) {
 
 		// send back commit errors if any
 		fmt.Println("Comitted!")
+		// r.t.CommitEnd()
+		timeline.Commit(start)
 		cnx.comRespChan <- c
 	}
 

@@ -12,22 +12,22 @@ var (
 	NoDataError = errors.New("No Data to checkpoint")
 )
 
-func (db *StateDB) checkpoint() (*CommitReq, error) {
+func (db *StateDB) encodeCheckpoint() (*CommitReq, error) {
 	// only returns encoding errors
 	// - commit errors are reported on db.err_can
 	// errChan := make(chan error)
 	if len(db.delta) == 0 {
-		return db.deltaCheckpoint()
+		return db.encodeDeltaCheckpoint()
 	}
 
-	return db.zeroCheckpoint()
+	return db.encodeZeroCheckpoint()
 }
 
 // Encodes the two databases delta and mutable
 // and passes the encoded data on to be committed
 // - returns immediately after encoding, and handles any commit errors
 //   in StateLoop
-func (db *StateDB) deltaCheckpoint() (*CommitReq, error) {
+func (db *StateDB) encodeDeltaCheckpoint() (*CommitReq, error) {
 	if len(db.delta) == 0 && len(db.mutable) == 0 {
 		return nil, NoDataError
 	}
@@ -58,7 +58,7 @@ func (db *StateDB) deltaCheckpoint() (*CommitReq, error) {
 // The FullCheckpoint serves as a forced checkpoint of all the known states
 // - Assumes that the system is in a consistent state
 // - Checkpoints the Immutable and Mutable states, and empties the delta log.
-func (db *StateDB) zeroCheckpoint() (*CommitReq, error) {
+func (db *StateDB) encodeZeroCheckpoint() (*CommitReq, error) {
 	// nothing to commit, but not an error
 	if len(db.immutable) == 0 {
 		return nil, NoDataError

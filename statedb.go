@@ -23,6 +23,7 @@ var (
 	ActiveCommitError = errors.New("An active commit has not returned")
 	NotRestoredError  = errors.New("Database has not been fully restored")
 	UnknownOperation  = errors.New("Unknown Operation")
+	timeline          *TimeLine
 )
 
 type StateDB struct {
@@ -83,7 +84,9 @@ func NewStateDB(fs Persistence, model Model, monitor Monitor, bid float64) (*Sta
 	db.sync_chan = make(chan *Msg)
 	db.op_chan = make(chan *StateOperation)
 	db.quit = make(chan chan error)
-	db.tl = NewTimeLine()
+	// db.tl = NewTimeLine()
+
+	timeline = NewTimeLine()
 
 	cnx := NewCommitNexus()
 	go commitLoop(fs, cnx)
@@ -123,7 +126,7 @@ func (db *StateDB) Sync() error {
 	db.sync_chan <- &Msg{
 		time: time.Now(),
 		err:  err,
-		// t:    c,
+		t:    c,
 	}
 	e := <-err
 	c.SyncEnd()
