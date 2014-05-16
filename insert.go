@@ -40,7 +40,7 @@ func (db *StateDB) Remove(kt *KeyType) error {
 	}
 
 	err_chan := make(chan error)
-	db.op_chan <- &StateOperation{
+	db.op_chan <- &stateOperation{
 		kt:     kt,
 		action: REMOVE,
 		err:    err_chan,
@@ -69,7 +69,7 @@ func (db *StateDB) Insert(i interface{}) (*KeyType, error) {
 
 	err_chan := make(chan error)
 
-	so := &StateOperation{
+	so := &stateOperation{
 		kt:     kt,
 		imm:    imm_d,
 		action: INSERT,
