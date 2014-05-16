@@ -74,6 +74,7 @@ func educate(model Model, monitor Monitor, nx *ModelNexus, bid float64) {
 			q.cptChan <- do
 		case pp := <-C:
 			err := model.PriceUpdate(pp.SpotPrice(), pp.TimeStamp())
+			timeline.PriceChange(pp.SpotPrice())
 			if err != nil {
 				nx.errChan <- err
 			}
