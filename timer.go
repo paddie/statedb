@@ -53,13 +53,13 @@ func (tl *TimeLine) Commit(start time.Time) {
 	tl.CmtCnt++
 }
 
-func (tl *TimeLine) Len() int {
-	return len(tl.SyncStarts)
-}
+// func (tl *TimeLine) Len() int {
+// 	return len(tl.SyncStarts)
+// }
 
-func (tl *TimeLine) XY(i int) (x, y float64) {
-	return tl.SyncStarts[i].Seconds(), tl.SyncDurations[i].Seconds()
-}
+// func (tl *TimeLine) XY(i int) (x, y float64) {
+// 	return tl.SyncStarts[i].Seconds(), tl.SyncDurations[i].Seconds()
+// }
 
 func (tl *TimeLine) Write(path string) error {
 	f, err := os.Create(path)

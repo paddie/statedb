@@ -185,7 +185,7 @@ func stateLoop(db *StateDB, mnx *ModelNexus, cnx *CommitNexus) {
 
 			mnx.Quit()
 			cnx.Quit()
-			err = db.tl.Write("stat")
+			err = timeline.Write("stat")
 			if err != nil {
 				fmt.Println(err.Error())
 			}
