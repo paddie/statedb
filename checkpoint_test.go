@@ -9,7 +9,7 @@ import (
 	"runtime"
 	"sync"
 	"testing"
-	// "time"
+	"time"
 )
 
 var main []*Main
@@ -48,7 +48,7 @@ func RestoreCheckpoint(t *testing.T) {
 	mdl := NewRisingEdge()
 
 	// s :=  monitor.NewEC2Instance(s, instanceType, productDescription, availabilityZone, filter)
-	mon := NewTestMonitor()
+	mon := NewTestMonitor(time.Second * 5)
 
 	f, _ := fs.NewFS_OS("cpt_test")
 
@@ -131,7 +131,7 @@ func WriteFullAndDelta(t *testing.T) {
 	mdl := NewRisingEdge()
 
 	// s :=  monitor.NewEC2Instance(s, instanceType, productDescription, availabilityZone, filter)
-	mon := NewTestMonitor()
+	mon := NewTestMonitor(time.Second * 5)
 
 	f, _ := fs.NewFS_OS("cpt_test")
 
