@@ -2,6 +2,7 @@ package statedb
 
 import (
 	// "errors"
+	"fmt"
 	// "github.com/paddie/statedb"
 	"time"
 )
@@ -35,8 +36,9 @@ func (r *RisingEdge) StatUpdate(_, _ float64) error {
 }
 
 func (r *RisingEdge) PriceUpdate(p float64, _ time.Time) error {
-
+	fmt.Printf("PriceChange: %.4f --> %.4f\n", r.price, p)
 	if r.price < p {
+		fmt.Println("Signalling checkpoint at next sync")
 		r.risen = true
 	} else {
 		r.risen = false
