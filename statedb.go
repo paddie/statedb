@@ -36,7 +36,7 @@ type StateDB struct {
 	delta     DeltaTypeMap  // static state delta
 	mutable   MutKeyTypeMap // mutable state
 	// Synchronization channels
-	op_chan chan *StateOperation // handles insert and remove operations
+	op_chan chan *stateOperation // handles insert and remove operations
 	// comReqChan   chan *CommitReq
 	// comRespChan  chan *CommitResp
 	quit         chan chan error // shutdown signals
@@ -82,7 +82,7 @@ func NewStateDB(fs Persistence, model Model, monitor Monitor, bid float64) (*Sta
 	}
 
 	db.sync_chan = make(chan *Msg)
-	db.op_chan = make(chan *StateOperation)
+	db.op_chan = make(chan *stateOperation)
 	db.quit = make(chan chan error)
 	// db.tl = NewTimeLine()
 
@@ -107,7 +107,7 @@ func (db *StateDB) Types() []string {
 	return ts
 }
 
-type StateOperation struct {
+type stateOperation struct {
 	kt     *KeyType
 	imm    []byte
 	mut    *MutState
@@ -121,7 +121,7 @@ type StateOperation struct {
 func (db *StateDB) Sync() error {
 	// response channel
 	err := make(chan error)
-	c := db.tl.Tick()
+	c := timeline.Tick()
 	c.SyncStart()
 	db.sync_chan <- &Msg{
 		time: time.Now(),
@@ -135,16 +135,15 @@ func (db *StateDB) Sync() error {
 
 func (db *StateDB) forceCheckpoint() error {
 	err := make(chan error)
-	c := db.tl.Tick()
+	c := timeline.Tick()
 	c.SyncStart()
-	defer c.SyncEnd()
 	db.sync_chan <- &Msg{
 		time:     time.Now(),
 		err:      err,
 		forceCPT: true,
-		// t:        c,
+		t:        c,
 	}
-
+	c.SyncEnd()
 	return <-err
 }
 
@@ -155,13 +154,14 @@ func (db *StateDB) Commit() error {
 	err := make(chan error)
 	fmt.Println("Commenceing final commit and shutdown..")
 
+	// send quit signal
 	db.quit <- err
 
-	e := <-err
-
-	return e
+	// await returning error
+	return <-err
 }
 
+// called from stateLoop to guarantee there is no race condition
 func (db *StateDB) insert(kt *KeyType, imm []byte, mut *MutState) error {
 
 	if db.immutable.contains(kt) {
