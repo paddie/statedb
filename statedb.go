@@ -41,7 +41,8 @@ type StateDB struct {
 	// comRespChan  chan *CommitResp
 	quit         chan chan error // shutdown signals
 	sync_chan    chan *Msg       // consistent state signals are sent on this channel
-	sync.RWMutex                 // for synchronizing things that don't need the channels..
+	init_chan    chan chan error
+	sync.RWMutex // for synchronizing things that don't need the channels..
 	tl           *TimeLine
 }
 
@@ -51,7 +52,7 @@ type StateDB struct {
 
 func (db *StateDB) readyCheckpoint() bool {
 
-	if db.ready || !db.restored {
+	if !db.restored {
 		return true
 	}
 
@@ -64,7 +65,7 @@ func (db *StateDB) readyCheckpoint() bool {
 		}
 	}
 	// every mutable object has been restored
-	db.ready = true
+	// db.ready = true
 	return true
 }
 
@@ -84,7 +85,7 @@ func NewStateDB(fs Persistence, model Model, monitor Monitor, bid float64) (*Sta
 	db.sync_chan = make(chan *Msg)
 	db.op_chan = make(chan *stateOperation)
 	db.quit = make(chan chan error)
-	// db.tl = NewTimeLine()
+	db.init_chan = make(chan chan error)
 
 	timeline = NewTimeLine()
 
@@ -151,11 +152,39 @@ func (db *StateDB) forceCheckpoint() error {
 // and a final, full checkpoint is written to disk.
 func (db *StateDB) Commit() error {
 
-	err := make(chan error)
+	err_chan := make(chan error)
 	fmt.Println("Commenceing final commit and shutdown..")
 
 	// send quit signal
-	db.quit <- err
+	db.quit <- err_chan
+
+	// await returning error
+	err := <-err_chan
+	if err == ActiveCommitError {
+		for {
+			// ping until a final commit can be made
+			time.Sleep(time.Millisecond * 1)
+			db.quit <- err_chan
+			err = <-err_chan
+			if err == ActiveCommitError {
+				continue
+			} else {
+				break
+			}
+		}
+
+	}
+
+	return err
+}
+
+func (db *StateDB) Init() error {
+
+	err := make(chan error)
+	// fmt.Println("Commenceing final commit and shutdown..")
+
+	// send quit signal
+	db.init_chan <- err
 
 	// await returning error
 	return <-err
