@@ -172,23 +172,22 @@ func (db *StateDB) Commit() error {
 				break
 			}
 		}
-
 	}
 
 	return err
 }
 
-func (db *StateDB) Init() error {
+// func (db *StateDB) Init() error {
 
-	err := make(chan error)
-	// fmt.Println("Commenceing final commit and shutdown..")
+// 	err := make(chan error)
+// 	// fmt.Println("Commenceing final commit and shutdown..")
 
-	// send quit signal
-	db.init_chan <- err
+// 	// send quit signal
+// 	db.init_chan <- err
 
-	// await returning error
-	return <-err
-}
+// 	// await returning error
+// 	return <-err
+// }
 
 // called from stateLoop to guarantee there is no race condition
 func (db *StateDB) insert(kt *KeyType, imm []byte, mut *MutState) error {

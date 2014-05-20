@@ -44,28 +44,40 @@ func stateLoop(db *StateDB, mnx *ModelNexus, cnx *CommitNexus) {
 
 	for {
 		select {
-		case err := <-db.init_chan:
-			// check if all mutable objects have been restored
-			// - only needs to be checked once, but is check subsequent times
-			if ready {
-				err <- nil
-				continue
-			}
-			// run through the mutablr db and make sure
-			// all states have been updated with new pointers
-			if !db.readyCheckpoint() {
-				err <- NotRestoredError
-				// t.Abort()
-				continue
-			}
-			// now ready to accept sync requests
-			ready = true
-			// report no error, signalling OK to go!
-			err <- nil
+		// case err := <-db.init_chan:
+		// 	// check if all mutable objects have been restored
+		// 	// - only needs to be checked once, but is check subsequent times
+		// 	if ready {
+		// 		err <- nil
+		// 		continue
+		// 	}
+		// 	// run through the mutablr db and make sure
+		// 	// all states have been updated with new pointers
+		// 	if !db.readyCheckpoint() {
+		// 		err <- NotRestoredError
+		// 		// t.Abort()
+		// 		continue
+		// 	}
+		// 	// now ready to accept sync requests
+		// 	ready = true
+		// 	// report no error, signalling OK to go!
+		// 	err <- nil
 		case msg := <-db.sync_chan:
 			// if an active commit is running
 			// ignore this sync
 			stat.markSyncPoint()
+
+			// is only checked once, to make sure that
+			// the mutable states have all been updated
+			// with new pointers.
+			if !ready {
+				ready = db.readyCheckpoint()
+				if !ready {
+					msg.err <- NotRestoredError
+					continue
+				}
+			}
+
 			// if there is an ongoing commit
 			// return immediately
 			if active_commit {
@@ -73,15 +85,10 @@ func stateLoop(db *StateDB, mnx *ModelNexus, cnx *CommitNexus) {
 				continue
 			}
 
-			// if init has not been called prior to this
-			// return error
-			if !ready {
-				msg.err <- NotRestoredError
-			}
-
 			t := msg.t
-			// only ask model to checkpoint if the forceCPT flag
-			// is not set
+			// forceCPT is used for testing
+			// so we only query the model if
+			// that particular flag is not set
 			t.ModelStart()
 			if !msg.forceCPT {
 				t := msg.t
@@ -133,15 +140,17 @@ func stateLoop(db *StateDB, mnx *ModelNexus, cnx *CommitNexus) {
 			db.delta = nil
 			*db.ctx = *req.ctx
 			fmt.Println("Successfully committed checkpoint")
-
 		case r := <-cnx.comRespChan:
+			// no active commits anymore
 			active_commit = false
-
+			// if the commit failed,
+			// report the event on the errChan
 			if !r.Success() {
 				errChan <- r.Err()
 				continue
 			}
 
+			// update the stats based on the type of checkpoint
 			if r.cpt_type == DELTACPT {
 				stat.deltaCPT(r.mut_dur, r.del_dur)
 			} else {
@@ -150,6 +159,7 @@ func stateLoop(db *StateDB, mnx *ModelNexus, cnx *CommitNexus) {
 			// send copy of updated stat to model
 			mnx.statChan <- stat
 		case so := <-db.op_chan:
+			// Insert or Remove entries in the database
 			kt := so.kt
 			if so.action == REMOVE {
 				err := db.remove(kt)
@@ -175,6 +185,8 @@ func stateLoop(db *StateDB, mnx *ModelNexus, cnx *CommitNexus) {
 				stat.insert(1, 1)
 				mnx.statChan <- stat
 			} else {
+				// if the action is unknown
+				// it is a fatal error
 				so.err <- UnknownOperation
 				errChan <- UnknownOperation
 			}
@@ -210,11 +222,14 @@ func stateLoop(db *StateDB, mnx *ModelNexus, cnx *CommitNexus) {
 
 			mnx.Quit()
 			cnx.Quit()
-			err = timeline.Write("stat")
-			if err != nil {
-				fmt.Println(err.Error())
+			if statPath != "" {
+				err = timeline.Write(statPath)
+				if err != nil {
+					respChan <- err
+					errChan <- err
+					return
+				}
 			}
-			fmt.Println("Done!")
 
 			respChan <- nil
 			return

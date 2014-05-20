@@ -94,8 +94,8 @@ func commitLoop(fs Persistence, cnx *CommitNexus) {
 			fmt.Println("Received ZEROCPT")
 			c.imm_dur, c.imm_err = commit_t(fs, r.ctx.ImmPath(), r.imm)
 		} else if r.cpt_type == DELTACPT {
+			fmt.Println("Received ∆CPT")
 			if r.del != nil {
-				fmt.Println("Received ∆CPT")
 				c.del_dur, c.del_err = commit_t(fs, r.ctx.DelPath(), r.del)
 			}
 		} else {
@@ -114,9 +114,7 @@ func commitLoop(fs Persistence, cnx *CommitNexus) {
 		// encode the context and flip-flop to disk
 		c.ctx_err = commitContext(fs, r.ctx)
 
-		// send back commit errors if any
 		fmt.Println("Comitted!")
-		// r.t.CommitEnd()
 		timeline.Commit(start)
 		cnx.comRespChan <- c
 	}
