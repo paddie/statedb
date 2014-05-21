@@ -19,6 +19,7 @@ func (db *StateDB) encodeCheckpoint(cptType int, stat *Stat) (*CommitReq, error)
 
 	switch cptType {
 	case ZEROCPT:
+		// always allow for a zero checkpoint
 		return db.encodeZeroCheckpoint()
 	case DELTACPT:
 		// A delta checkpoint must be preceeded by
@@ -29,10 +30,11 @@ func (db *StateDB) encodeCheckpoint(cptType int, stat *Stat) (*CommitReq, error)
 		}
 		return db.encodeDeltaCheckpoint()
 	case NONDETERMCPT:
-		// base case
+		// base case: first checkpoint call
 		if db.ctx.RCID == 0 {
 			return db.encodeZeroCheckpoint()
 		}
+		// * a zero checkpoint exists *
 		// if nothing is in the delta
 		// - we obviously commit a delta checkpoint
 		if len(db.delta) == 0 {

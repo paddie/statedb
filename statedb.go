@@ -49,7 +49,7 @@ type StateDB struct {
 	sync_chan    chan *msg       // consistent state signals are sent on this channel
 	init_chan    chan chan error
 	sync.RWMutex // for synchronizing things that don't need the channels..
-	tl           *TimeLine
+	// tl           *TimeLine
 }
 
 // func (db *StateDB) Restored() bool {
@@ -138,6 +138,9 @@ func (db *StateDB) Sync() error {
 	}
 	e := <-err
 	c.SyncEnd()
+	if e == ActiveCommitError {
+		return nil
+	}
 	return e
 }
 
@@ -152,8 +155,12 @@ func (db *StateDB) forceCheckpoint() error {
 		cptType:  NONDETERMCPT,
 		t:        c,
 	}
+	e := <-err
 	c.SyncEnd()
-	return <-err
+	if e == ActiveCommitError {
+		return nil
+	}
+	return e
 }
 
 func (db *StateDB) forceDeltaCPT() error {
@@ -186,46 +193,61 @@ func (db *StateDB) forceZeroCPT() error {
 	return <-err
 }
 
+func (db *StateDB) forceZeroCPTBlock() error {
+
+	errChan := make(chan error)
+	commitBlock := make(chan error)
+
+	c := timeline.Tick()
+	c.SyncStart()
+	m := &msg{
+		time:     time.Now(),
+		err:      errChan,
+		forceCPT: true,
+		cptType:  ZEROCPT,
+		t:        c,
+		waitChan: commitBlock,
+	}
+	db.sync_chan <- m
+
+	if err := <-errChan; err != nil {
+		if err == ActiveCommitError {
+			// if we sent a final commit while another commit
+			// was being checkpointed, the commitBlock
+			// will be signalled once *any* commit returns
+			<-commitBlock
+			db.sync_chan <- m
+			err = <-errChan
+			if err != nil {
+				return err
+			}
+		} else {
+			return err
+		}
+	}
+	c.SyncEnd()
+	// block until the final checkpoint is completed
+	return <-commitBlock
+}
+
 // When called, all checkpointing is shut down,
 // and a final, full checkpoint is written to disk.
 func (db *StateDB) Commit() error {
 
-	err_chan := make(chan error)
-	fmt.Println("Commenceing final commit and shutdown..")
-
-	// send quit signal
-	db.quit <- err_chan
-
-	// await returning error
-	err := <-err_chan
-	if err == ActiveCommitError {
-		for {
-			// ping until a final commit can be made
-			time.Sleep(time.Millisecond * 1)
-			db.quit <- err_chan
-			err = <-err_chan
-			if err == ActiveCommitError {
-				continue
-			} else {
-				break
-			}
-		}
+	// force a zero checkpoint and wait
+	// till the checkpoint has been fully committed
+	err := db.forceZeroCPTBlock()
+	if err != nil {
+		return err
 	}
+	fmt.Println("sending quit signal..")
+	// send an error chan on which to respond in the
+	// case of shut down issues
+	errChan := make(chan error)
+	db.quit <- errChan
 
-	return err
+	return <-errChan
 }
-
-// func (db *StateDB) Init() error {
-
-// 	err := make(chan error)
-// 	// fmt.Println("Commenceing final commit and shutdown..")
-
-// 	// send quit signal
-// 	db.init_chan <- err
-
-// 	// await returning error
-// 	return <-err
-// }
 
 // called from stateLoop to guarantee there is no race condition
 func (db *StateDB) insert(kt *KeyType, imm []byte, mut *MutState) error {

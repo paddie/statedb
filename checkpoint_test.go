@@ -57,7 +57,7 @@ func RestoreCheckpoint(t *testing.T) {
 		t.Error(err)
 	}
 
-	db, restored, err := NewStateDB(f, mdl, mon, 1.0)
+	db, restored, err := NewStateDB(f, mdl, mon, 1.0, true)
 	if err != nil {
 		t.Fatal(err)
 		return
@@ -140,7 +140,7 @@ func WriteFullAndDelta(t *testing.T) {
 		t.Error(err)
 	}
 
-	db, restored, err := NewStateDB(f, mdl, mon, 1.0)
+	db, restored, err := NewStateDB(f, mdl, mon, 1.0, true)
 	if err != nil {
 		t.Fatal(err)
 		return
@@ -211,8 +211,7 @@ func WriteFullAndDelta(t *testing.T) {
 	if db.immutable.contains(kt) {
 		t.Error("kt " + kt.String() + " was not deleted.")
 	}
-	// is not normally possible
-	fmt.Println("Ladida!")
+
 	err = db.Commit()
 	if err != nil {
 		t.Fatal(err)

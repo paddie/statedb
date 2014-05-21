@@ -18,14 +18,14 @@ type Model interface {
 
 type ModelNexus struct {
 	errChan      chan error
-	statChan     chan *Stat
+	statChan     chan Stat
 	cptQueryChan chan *CheckpointQuery
 	quitChan     chan bool
 }
 
 func NewModelNexus() *ModelNexus {
 	return &ModelNexus{
-		statChan:     make(chan *Stat, 1),
+		statChan:     make(chan Stat, 1),
 		cptQueryChan: make(chan *CheckpointQuery),
 		errChan:      make(chan error),
 		quitChan:     make(chan bool),

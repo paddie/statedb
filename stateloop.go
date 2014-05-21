@@ -13,6 +13,7 @@ type msg struct {
 	err      chan error
 	forceCPT bool
 	t        *CheckpointTrace
+	waitChan chan error
 }
 
 type CheckpointQuery struct {
@@ -42,7 +43,7 @@ func stateLoop(db *StateDB, mnx *ModelNexus, cnx *CommitNexus, trace bool) {
 	//    have been restored prior to a run.
 	ready := !db.restored
 
-	// var activeCommitChan chan chan bool
+	waitChans := []chan error{}
 
 	for {
 		select {
@@ -54,7 +55,10 @@ func stateLoop(db *StateDB, mnx *ModelNexus, cnx *CommitNexus, trace bool) {
 			// if there is an ongoing commit
 			// return immediately
 			if active_commit {
-				m.err <- nil
+				m.err <- ActiveCommitError
+				if m.waitChan != nil {
+					waitChans = append(waitChans, m.waitChan)
+				}
 				continue
 			}
 
@@ -108,27 +112,54 @@ func stateLoop(db *StateDB, mnx *ModelNexus, cnx *CommitNexus, trace bool) {
 			t.EncodingEnd()
 
 			// state was successfully encoded, return control to application while performing commit
+			active_commit = true
+
+			if m.waitChan != nil {
+				fmt.Println("received a commit checkpoint")
+				waitChans = append(waitChans, m.waitChan)
+			}
+
+			cnx.comReqChan <- req
 			m.err <- nil
+
 			// forward the encoded state to be committed
 			// and signal an active commit
-			active_commit = true
-			cnx.comReqChan <- req
+
 			// update sync frequencies with model
-			mnx.statChan <- stat
+			mnx.statChan <- *stat
 			// 1) the delta has been encoded, so we reset it
 			db.delta = nil
 			// 2) update the context to reflect the
 			//    type of checkpoint that was encoded
 			*db.ctx = *req.ctx
-			fmt.Println("Successfully committed checkpoint")
 		case r := <-cnx.comRespChan:
 			// no active commits anymore
 			active_commit = false
 			// if the commit failed,
 			// report the event on the errChan
 			if !r.Success() {
+				if len(waitChans) > 0 {
+					for _, wc := range waitChans {
+						wc <- r.Err()
+					}
+					// nil channel afterwards to make
+					// sure that we don't mistakenly block
+					// next time
+					waitChans = nil
+				}
 				errChan <- r.Err()
 				continue
+			}
+			// signal to any waiting process that
+			// the write was completed.
+			if len(waitChans) > 0 {
+				for _, wc := range waitChans {
+					wc <- nil
+				}
+				// nil channel afterwards to make
+				// sure that we don't mistakenly block
+				// next time
+				waitChans = nil
 			}
 
 			// update the stats based on the type of checkpoint
@@ -138,7 +169,7 @@ func stateLoop(db *StateDB, mnx *ModelNexus, cnx *CommitNexus, trace bool) {
 				stat.zeroCPT(r.imm_dur, r.mut_dur)
 			}
 			// send copy of updated stat to model
-			mnx.statChan <- stat
+			mnx.statChan <- *stat
 		case so := <-db.op_chan:
 			// Insert or Remove entries in the database
 			kt := so.kt
@@ -152,7 +183,7 @@ func stateLoop(db *StateDB, mnx *ModelNexus, cnx *CommitNexus, trace bool) {
 				so.err <- nil
 				// Update and send stat
 				stat.remove(1, 1)
-				mnx.statChan <- stat
+				mnx.statChan <- *stat
 			} else if so.action == INSERT {
 				err := db.insert(kt, so.imm, so.mut)
 				if err != nil {
@@ -164,7 +195,7 @@ func stateLoop(db *StateDB, mnx *ModelNexus, cnx *CommitNexus, trace bool) {
 
 				// Update and ship stat
 				stat.insert(1, 1)
-				mnx.statChan <- stat
+				mnx.statChan <- *stat
 			} else {
 				// if the action is unknown
 				// it is a fatal error
@@ -175,36 +206,10 @@ func stateLoop(db *StateDB, mnx *ModelNexus, cnx *CommitNexus, trace bool) {
 			// if an active commit is ongoing
 			// TODO: set notify channel
 			//       which will be checked on a completed commit
-			if active_commit {
-				respChan <- ActiveCommitError
-				continue
-			}
-
-			fmt.Println("Committing final checkpoint..")
-			req, err := db.encodeZeroCheckpoint()
-			if err != nil {
-				if err == NoDataError {
-					err = nil
-				}
-				errChan <- err
-				respChan <- err
-				return
-			}
-			cnx.comReqChan <- req
-			resp := <-cnx.comRespChan
-			if !resp.Success() {
-				err := resp.Err()
-				respChan <- err
-				errChan <- err
-				return
-			}
-
-			fmt.Println("Checkpoint committed. Shutting down..")
-
 			mnx.Quit()
 			cnx.Quit()
 			if trace {
-				err = timeline.Write("trace")
+				err := timeline.Write("trace")
 				if err != nil {
 					respChan <- err
 					errChan <- err
