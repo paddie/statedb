@@ -17,10 +17,9 @@ type Msg struct {
 type CheckpointQuery struct {
 	s       *Stat
 	cptChan chan bool
-	// t       *CheckpointTrace
 }
 
-func stateLoop(db *StateDB, mnx *ModelNexus, cnx *CommitNexus) {
+func stateLoop(db *StateDB, mnx *ModelNexus, cnx *CommitNexus, trace bool) {
 	// Global error handing channel
 	// - every error on this channel results in a panic
 	errChan := make(chan error)
@@ -201,15 +200,14 @@ func stateLoop(db *StateDB, mnx *ModelNexus, cnx *CommitNexus) {
 
 			mnx.Quit()
 			cnx.Quit()
-			if statPath != "" {
-				err = timeline.Write(statPath)
+			if trace {
+				err = timeline.Write("trace")
 				if err != nil {
 					respChan <- err
 					errChan <- err
 					return
 				}
 			}
-
 			respChan <- nil
 			return
 		}

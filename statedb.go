@@ -69,7 +69,7 @@ func (db *StateDB) readyCheckpoint() bool {
 	return true
 }
 
-func NewStateDB(fs Persistence, model Model, monitor Monitor, bid float64) (*StateDB, bool, error) {
+func NewStateDB(fs Persistence, model Model, monitor Monitor, bid float64, trace bool) (*StateDB, bool, error) {
 
 	// Initialize the directories
 	db, err := restore(fs)
@@ -95,7 +95,7 @@ func NewStateDB(fs Persistence, model Model, monitor Monitor, bid float64) (*Sta
 	mnx := NewModelNexus()
 	go educate(model, monitor, mnx, bid)
 
-	go stateLoop(db, mnx, cnx)
+	go stateLoop(db, mnx, cnx, trace)
 	return db, db.restored, nil
 }
 

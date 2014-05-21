@@ -77,32 +77,32 @@ func commitLoop(fs Persistence, cnx *CommitNexus) {
 
 	t_comm := make(chan *TimedCommit)
 	// for will loop until the channel is closed
-	// by cnx.Close()
+	// by cnx.Close() which is called during the cleanup
 	for r := range cnx.comReqChan {
-		// r.t.CommitStart()
+		// note the start time for statistics purposes
 		start := time.Now()
 		c := &CommitResp{
 			cpt_type: r.cpt_type,
 			ctx:      r.ctx,
 		}
 		// send the values on different goroutines
-		// to minimize blocking
+		// to parallelize the writes
 		go async_commit(fs, r.ctx.MutPath(), r.mut, t_comm)
-		// commit either the immutable or the delta depending on the type of
-		// checkpoint
+		// commit either the immutable or the delta
+		// depending on the type of checkpoint
 		if r.cpt_type == ZEROCPT {
-			fmt.Println("Received ZEROCPT")
+			fmt.Println("Received encoded ZEROCPT")
 			c.imm_dur, c.imm_err = commit_t(fs, r.ctx.ImmPath(), r.imm)
-		} else if r.cpt_type == DELTACPT {
-			fmt.Println("Received ∆CPT")
-			if r.del != nil {
-				c.del_dur, c.del_err = commit_t(fs, r.ctx.DelPath(), r.del)
-			}
 		} else {
-			// // stats
-			// _, _ = commit_t(fs, "trace.cpt", c.trace)
+			fmt.Println("Received encoded ∆CPT")
+			if r.cpt_type == DELTACPT {
+
+				if r.del != nil {
+					c.del_dur, c.del_err = commit_t(fs, r.ctx.DelPath(), r.del)
+				}
+			}
 		}
-		// retrieve any error from committing the mutable
+		// wait for the mutable checkpoint to complete
 		tm := <-t_comm
 		c.mut_dur, c.mut_err = tm.dur, tm.err
 
@@ -111,14 +111,17 @@ func commitLoop(fs Persistence, cnx *CommitNexus) {
 			cnx.comRespChan <- c
 			continue
 		}
+
 		// encode the context and flip-flop to disk
 		c.ctx_err = commitContext(fs, r.ctx)
-
-		fmt.Println("Comitted!")
+		// note the checkpoint time with the timeline
 		timeline.Commit(start)
+		// send the durations back to statistics module
 		cnx.comRespChan <- c
 	}
 
+	// once the cnx.comReqCHan is closed
+	// close the response channel
 	close(cnx.comRespChan)
 }
 
