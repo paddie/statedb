@@ -24,10 +24,12 @@ const (
 )
 
 var (
-	ActiveCommitError = errors.New("An active commit has not returned")
-	NotRestoredError  = errors.New("Database has not been fully restored")
-	UnknownOperation  = errors.New("Unknown Operation")
-	timeline          *TimeLine
+	ActiveCommitError     = errors.New("An active commit has not returned")
+	NotRestoredError      = errors.New("Database has not been fully restored")
+	UnknownOperation      = errors.New("Unknown Operation")
+	timeline              *TimeLine
+	DeltaBeforeZeroError  = errors.New("Delta Checkpoint requested before an initial Zero checkpoint.")
+	InvalidCheckpointType = errors.New("Invalid CheckpointType")
 )
 
 type StateDB struct {
@@ -44,7 +46,7 @@ type StateDB struct {
 	// comReqChan   chan *CommitReq
 	// comRespChan  chan *CommitResp
 	quit         chan chan error // shutdown signals
-	sync_chan    chan *Msg       // consistent state signals are sent on this channel
+	sync_chan    chan *msg       // consistent state signals are sent on this channel
 	init_chan    chan chan error
 	sync.RWMutex // for synchronizing things that don't need the channels..
 	tl           *TimeLine
@@ -86,7 +88,7 @@ func NewStateDB(fs Persistence, model Model, monitor Monitor, bid float64, trace
 		}
 	}
 
-	db.sync_chan = make(chan *Msg)
+	db.sync_chan = make(chan *msg)
 	db.op_chan = make(chan *stateOperation)
 	db.quit = make(chan chan error)
 	db.init_chan = make(chan chan error)
@@ -128,10 +130,11 @@ func (db *StateDB) Sync() error {
 	err := make(chan error)
 	c := timeline.Tick()
 	c.SyncStart()
-	db.sync_chan <- &Msg{
-		time: time.Now(),
-		err:  err,
-		t:    c,
+	db.sync_chan <- &msg{
+		time:    time.Now(),
+		err:     err,
+		t:       c,
+		cptType: NONDETERMCPT,
 	}
 	e := <-err
 	c.SyncEnd()
@@ -142,10 +145,41 @@ func (db *StateDB) forceCheckpoint() error {
 	err := make(chan error)
 	c := timeline.Tick()
 	c.SyncStart()
-	db.sync_chan <- &Msg{
+	db.sync_chan <- &msg{
 		time:     time.Now(),
 		err:      err,
 		forceCPT: true,
+		cptType:  NONDETERMCPT,
+		t:        c,
+	}
+	c.SyncEnd()
+	return <-err
+}
+
+func (db *StateDB) forceDeltaCPT() error {
+	err := make(chan error)
+	c := timeline.Tick()
+	c.SyncStart()
+	db.sync_chan <- &msg{
+		time:     time.Now(),
+		err:      err,
+		forceCPT: true,
+		cptType:  DELTACPT,
+		t:        c,
+	}
+	c.SyncEnd()
+	return <-err
+}
+
+func (db *StateDB) forceZeroCPT() error {
+	err := make(chan error)
+	c := timeline.Tick()
+	c.SyncStart()
+	db.sync_chan <- &msg{
+		time:     time.Now(),
+		err:      err,
+		forceCPT: true,
+		cptType:  ZEROCPT,
 		t:        c,
 	}
 	c.SyncEnd()

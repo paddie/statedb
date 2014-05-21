@@ -7,8 +7,9 @@ import (
 	"time"
 )
 
-type Msg struct {
+type msg struct {
 	time     time.Time
+	cptType  int
 	err      chan error
 	forceCPT bool
 	t        *CheckpointTrace
@@ -41,9 +42,11 @@ func stateLoop(db *StateDB, mnx *ModelNexus, cnx *CommitNexus, trace bool) {
 	//    have been restored prior to a run.
 	ready := !db.restored
 
+	// var activeCommitChan chan chan bool
+
 	for {
 		select {
-		case msg := <-db.sync_chan:
+		case m := <-db.sync_chan:
 			// if an active commit is running
 			// ignore this sync
 			stat.markSyncPoint()
@@ -51,7 +54,7 @@ func stateLoop(db *StateDB, mnx *ModelNexus, cnx *CommitNexus, trace bool) {
 			// if there is an ongoing commit
 			// return immediately
 			if active_commit {
-				msg.err <- nil
+				m.err <- nil
 				continue
 			}
 
@@ -61,21 +64,21 @@ func stateLoop(db *StateDB, mnx *ModelNexus, cnx *CommitNexus, trace bool) {
 			if !ready {
 				ready = db.readyCheckpoint()
 				if !ready {
-					msg.err <- NotRestoredError
+					m.err <- NotRestoredError
 					continue
 				}
 			}
 			// stat trace for the timeline
-			t := msg.t
+			t := m.t
 
 			// forceCPT is used for testing
 			// so we only query the model if
 			// that particular flag is not set
 			t.ModelStart()
-			if !msg.forceCPT {
+			if !m.forceCPT {
 				mnx.cptQueryChan <- cptQ
 				if cpt := <-cptQ.cptChan; !cpt {
-					msg.err <- nil
+					m.err <- nil
 					t.ModelEnd()
 					t.Abort()
 					continue
@@ -87,14 +90,14 @@ func stateLoop(db *StateDB, mnx *ModelNexus, cnx *CommitNexus, trace bool) {
 
 			// encode checkpoint
 			t.EncodingStart()
-			req, err := db.encodeCheckpoint()
+			req, err := db.encodeCheckpoint(m.cptType, stat)
 			if err != nil {
 				// do not report error if there is nothing
 				// to checkpoint
 				if err == NoDataError {
-					msg.err <- nil
+					m.err <- nil
 				} else {
-					msg.err <- err
+					m.err <- err
 					// report global error
 					// - if we cannot encode, something is very wrong
 					errChan <- err
@@ -105,7 +108,7 @@ func stateLoop(db *StateDB, mnx *ModelNexus, cnx *CommitNexus, trace bool) {
 			t.EncodingEnd()
 
 			// state was successfully encoded, return control to application while performing commit
-			msg.err <- nil
+			m.err <- nil
 			// forward the encoded state to be committed
 			// and signal an active commit
 			active_commit = true

@@ -3,7 +3,7 @@ package statedb
 import (
 	// "encoding/gob"
 	"errors"
-	// "fmt"
+	"fmt"
 	// "log"
 	// "os"
 )
@@ -12,15 +12,43 @@ var (
 	NoDataError = errors.New("No Data to checkpoint")
 )
 
-func (db *StateDB) encodeCheckpoint() (*CommitReq, error) {
+func (db *StateDB) encodeCheckpoint(cptType int, stat *Stat) (*CommitReq, error) {
 	// only returns encoding errors
 	// - commit errors are reported on db.err_can
 	// errChan := make(chan error)
-	if len(db.delta) == 0 {
+
+	switch cptType {
+	case ZEROCPT:
+		return db.encodeZeroCheckpoint()
+	case DELTACPT:
+		// A delta checkpoint must be preceeded by
+		// an initial zero checkpoint
+		// - should maybe just return zero checkpoint
+		if db.ctx.RCID == 0 {
+			return nil, DeltaBeforeZeroError
+		}
 		return db.encodeDeltaCheckpoint()
+	case NONDETERMCPT:
+		// base case
+		if db.ctx.RCID == 0 {
+			return db.encodeZeroCheckpoint()
+		}
+		// if nothing is in the delta
+		// - we obviously commit a delta checkpoint
+		if len(db.delta) == 0 {
+			return db.encodeDeltaCheckpoint()
+		}
+
+		// use the stat to determine which checkpoint to choose
+		if stat.expReadDelta() < stat.expReadZero() {
+			return db.encodeDeltaCheckpoint()
+		}
+
+		// TODO: maybe provide this with seperate heuristic
+		return db.encodeZeroCheckpoint()
 	}
 
-	return db.encodeZeroCheckpoint()
+	return nil, fmt.Errorf("InvalidCheckpointType: %d", cptType)
 }
 
 // Encodes the two databases delta and mutable
