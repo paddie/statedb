@@ -44,28 +44,17 @@ func stateLoop(db *StateDB, mnx *ModelNexus, cnx *CommitNexus) {
 
 	for {
 		select {
-		// case err := <-db.init_chan:
-		// 	// check if all mutable objects have been restored
-		// 	// - only needs to be checked once, but is check subsequent times
-		// 	if ready {
-		// 		err <- nil
-		// 		continue
-		// 	}
-		// 	// run through the mutablr db and make sure
-		// 	// all states have been updated with new pointers
-		// 	if !db.readyCheckpoint() {
-		// 		err <- NotRestoredError
-		// 		// t.Abort()
-		// 		continue
-		// 	}
-		// 	// now ready to accept sync requests
-		// 	ready = true
-		// 	// report no error, signalling OK to go!
-		// 	err <- nil
 		case msg := <-db.sync_chan:
 			// if an active commit is running
 			// ignore this sync
 			stat.markSyncPoint()
+
+			// if there is an ongoing commit
+			// return immediately
+			if active_commit {
+				msg.err <- nil
+				continue
+			}
 
 			// is only checked once, to make sure that
 			// the mutable states have all been updated
@@ -77,24 +66,16 @@ func stateLoop(db *StateDB, mnx *ModelNexus, cnx *CommitNexus) {
 					continue
 				}
 			}
-
-			// if there is an ongoing commit
-			// return immediately
-			if active_commit {
-				msg.err <- nil
-				continue
-			}
-
+			// stat trace for the timeline
 			t := msg.t
+
 			// forceCPT is used for testing
 			// so we only query the model if
 			// that particular flag is not set
 			t.ModelStart()
 			if !msg.forceCPT {
-				t := msg.t
 				mnx.cptQueryChan <- cptQ
-
-				if cpt := <-cptQ.cptChan; cpt == false {
+				if cpt := <-cptQ.cptChan; !cpt {
 					msg.err <- nil
 					t.ModelEnd()
 					t.Abort()
@@ -126,18 +107,16 @@ func stateLoop(db *StateDB, mnx *ModelNexus, cnx *CommitNexus) {
 
 			// state was successfully encoded, return control to application while performing commit
 			msg.err <- nil
-
 			// forward the encoded state to be committed
 			// and signal an active commit
 			active_commit = true
 			cnx.comReqChan <- req
 			// update sync frequencies with model
 			mnx.statChan <- stat
-
 			// 1) the delta has been encoded, so we reset it
+			db.delta = nil
 			// 2) update the context to reflect the
 			//    type of checkpoint that was encoded
-			db.delta = nil
 			*db.ctx = *req.ctx
 			fmt.Println("Successfully committed checkpoint")
 		case r := <-cnx.comRespChan:
