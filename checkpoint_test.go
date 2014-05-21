@@ -57,7 +57,7 @@ func RestoreCheckpoint(t *testing.T) {
 		t.Error(err)
 	}
 
-	db, restored, err := NewStateDB(f, mdl, mon, 1.0, true)
+	db, restored, err := NewStateDB(f, mdl, mon, 1.0, false)
 	if err != nil {
 		t.Fatal(err)
 		return
@@ -140,7 +140,7 @@ func WriteFullAndDelta(t *testing.T) {
 		t.Error(err)
 	}
 
-	db, restored, err := NewStateDB(f, mdl, mon, 1.0, true)
+	db, restored, err := NewStateDB(f, mdl, mon, 1.0, false)
 	if err != nil {
 		t.Fatal(err)
 		return
