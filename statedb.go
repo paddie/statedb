@@ -14,9 +14,13 @@ import (
 )
 
 const (
-	REMOVE  int = -1
-	INSERT  int = 1
-	RESTORE int = 0
+	ZEROCPT = iota
+	DELTACPT
+	NONDETERMCPT
+	STATS
+	REMOVE
+	INSERT
+	RESTORE
 )
 
 var (

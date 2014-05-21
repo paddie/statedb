@@ -5,12 +5,6 @@ import (
 	"time"
 )
 
-const (
-	ZEROCPT  = 10
-	DELTACPT = 5
-	STATS    = 15
-)
-
 // Interface to checkpoint data to non-volatile memory
 type Persistence interface {
 	List(prefix string) ([]string, error) // list items in dir
