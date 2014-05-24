@@ -75,7 +75,7 @@ func (db *StateDB) readyCheckpoint() bool {
 	return true
 }
 
-func NewStateDB(fs Persistence, model Model, monitor Monitor, bid float64, trace bool) (*StateDB, bool, error) {
+func NewStateDB(fs Persistence, model Model, monitor Monitor, bid float64, path string) (*StateDB, bool, error) {
 
 	// Initialize the directories
 	db, err := restore(fs)
@@ -101,7 +101,7 @@ func NewStateDB(fs Persistence, model Model, monitor Monitor, bid float64, trace
 	mnx := NewModelNexus()
 	go educate(model, monitor, mnx, bid)
 
-	go stateLoop(db, mnx, cnx, trace)
+	go stateLoop(db, mnx, cnx, path)
 	return db, db.restored, nil
 }
 
@@ -179,18 +179,18 @@ func (db *StateDB) forceDeltaCPT() error {
 }
 
 func (db *StateDB) forceZeroCPT() error {
-	err := make(chan error)
+	errChan := make(chan error)
 	c := timeline.Tick()
 	c.SyncStart()
 	db.sync_chan <- &msg{
 		time:     time.Now(),
-		err:      err,
-		forceCPT: true,
-		cptType:  ZEROCPT,
+		err:      errChan,
+		forceCPT: true,    // don't query schedular
+		cptType:  ZEROCPT, // force a zero checkpoint
 		t:        c,
 	}
 	c.SyncEnd()
-	return <-err
+	return <-errChan
 }
 
 func (db *StateDB) forceZeroCPTBlock() error {
@@ -226,8 +226,11 @@ func (db *StateDB) forceZeroCPTBlock() error {
 		}
 	}
 	c.SyncEnd()
+	fmt.Println("waiting for commit")
+	err := <-commitBlock
+	fmt.Println("Complete was final!")
 	// block until the final checkpoint is completed
-	return <-commitBlock
+	return err
 }
 
 // When called, all checkpointing is shut down,

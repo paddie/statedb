@@ -4,6 +4,7 @@ import (
 	"fmt"
 	// "github.com/paddie/goamz/ec2"
 	// "github.com/paddie/statedb/monitor"
+	// "io"
 	"time"
 )
 
@@ -21,7 +22,7 @@ type CheckpointQuery struct {
 	cptChan chan bool
 }
 
-func stateLoop(db *StateDB, mnx *ModelNexus, cnx *CommitNexus, trace bool) {
+func stateLoop(db *StateDB, mnx *ModelNexus, cnx *CommitNexus, path string) {
 	// Global error handing channel
 	// - every error on this channel results in a panic
 	errChan := make(chan error)
@@ -42,6 +43,7 @@ func stateLoop(db *StateDB, mnx *ModelNexus, cnx *CommitNexus, trace bool) {
 	// 1) call db.Init() to run the check to see if all states
 	//    have been restored prior to a run.
 	ready := !db.restored
+	// quit := false
 
 	waitChans := []chan error{}
 
@@ -208,8 +210,8 @@ func stateLoop(db *StateDB, mnx *ModelNexus, cnx *CommitNexus, trace bool) {
 			//       which will be checked on a completed commit
 			mnx.Quit()
 			cnx.Quit()
-			if trace {
-				err := timeline.Write("trace")
+			if path != "" {
+				err := timeline.Write(path)
 				if err != nil {
 					respChan <- err
 					errChan <- err

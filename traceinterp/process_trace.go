@@ -11,6 +11,9 @@ import (
 	"github.com/paddie/statedb"
 	"math"
 	"os"
+	"os/exec"
+	"path/filepath"
+	"strings"
 	"time"
 )
 
@@ -65,13 +68,22 @@ func (xy *XYer) XY(i int) (float64, float64) {
 	return NanToMill(xy.Xs[i].Nanoseconds()), NanToMill(xy.Ys[i].Nanoseconds())
 }
 
-var path string
-
-// var bid float64
+var (
+	path       string
+	price      bool
+	commit     bool
+	syncs      bool
+	model      bool
+	monitor    bool
+	checkpoint bool
+)
 
 func init() {
 	flag.StringVar(&path, "p", "", "path to json dump of a *Trace object")
-	// flag.Float64Var(&bid, "b", 0.0, "define initial bid")
+	flag.BoolVar(&price, "price", false, "plot price changes")
+	flag.BoolVar(&commit, "commit", false, "plot cpts times and durations")
+	flag.BoolVar(&syncs, "sync", false, "plot sync times and durations")
+	flag.BoolVar(&model, "model", false, "plot model times and durations")
 }
 
 func main() {
@@ -104,32 +116,75 @@ func main() {
 	p.X.Label.Text = "timeline/ms"
 	p.Y.Label.Text = "event duration/ms"
 
+	// if !syncs && !commit && !price {
+	// 	fmt.Println("No data flags were set!")
+	// 	return
+	// }
+
+	// if price {
+	for i, v := range tl.PriceChanges {
+		tl.PriceChanges[i] = v * 2000
+	}
+
 	pc, err := NewPriceTraces(tl.PriceTimes, tl.PriceChanges)
 	if err != nil {
 		panic(err)
 	}
+	// fmt.Println("Adding Price Traces...")
+	// err = plotutil.AddLinePoints(p,
+	// "price changes", pc)
+	// if err != nil {
+	// 	panic(err)
+	// }
+	// }
 
+	// if syncs {
+	fmt.Println("Adding Sync events")
 	sp, err := NewXYer(tl.SyncStarts, tl.SyncDurations)
 	if err != nil {
 		panic(err)
 	}
+	// err = plotutil.AddLinePoints(p, "sync", sp)
+	// if err != nil {
+	// 	panic(err)
+	// }
+	// }
+
+	// if commit {
+	fmt.Println("Adding Commit events")
 
 	cp, err := NewXYer(tl.CommitStarts, tl.CommitDurations)
 	if err != nil {
 		panic(err)
 	}
 
+	// err = plotutil.AddLinePoints(p, "commits", cp)
+	// if err != nil {
+	// 	panic(err)
+	// }
+	// }
+
 	err = plotutil.AddLinePoints(p,
-		"priceChanges", pc,
-		"SyncPoints", sp,
-		"commit", cp)
+		"sync", sp,
+		"commits", cp,
+		"price changes", pc)
 	if err != nil {
 		panic(err)
 	}
 
-	// Save the plot to a PNG file.
-	if err := p.Save(8, 4, path+".png"); err != nil {
+	path = strings.Replace(path, " ", "", -1)
+
+	if err := p.Save(8, 4, path+".pdf"); err != nil {
 		panic(err)
 	}
-
+	wd, err := os.Getwd()
+	if err != nil {
+		os.Exit(1)
+	}
+	file := filepath.Join(wd, path+".pdf")
+	fmt.Println(file)
+	err = exec.Command("/usr/bin/open", file).Run()
+	if err != nil {
+		fmt.Println(err.Error())
+	}
 }

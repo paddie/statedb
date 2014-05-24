@@ -110,10 +110,12 @@ func commitLoop(fs Persistence, cnx *CommitNexus) {
 		c.ctx_err = commitContext(fs, r.ctx)
 		// note the checkpoint time with the timeline
 		timeline.Commit(start)
+		fmt.Println("registered commit time")
 		// send the durations back to statistics module
 		cnx.comRespChan <- c
 	}
 
+	fmt.Println("Committer has shut down")
 	// once the cnx.comReqCHan is closed
 	// close the response channel
 	close(cnx.comRespChan)

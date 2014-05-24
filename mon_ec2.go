@@ -6,12 +6,27 @@ import (
 	"time"
 )
 
+// type PricePoint struct {
+// 	spotPrice float64
+// 	timeStamp time.Time
+// 	key       string
+// }
+
+// func (p *PricePoint) Price() float64 {
+// 	return p.spotPrice
+// }
+
+// func (p *PricePoint) Time() time.Time {
+// 	return p.timeStamp
+// }
+
 type EC2Monitor struct {
-	request *ec2.SpotPriceRequest
-	filter  *ec2.Filter
-	ec2     *ec2.EC2
-	quit    chan bool
-	active  bool
+	request  *ec2.SpotPriceRequest
+	filter   *ec2.Filter
+	ec2      *ec2.EC2
+	quit     chan bool
+	active   bool
+	from, to time.Time
 }
 
 func NewEC2Monitor(s *ec2.EC2, instanceType, productDescription, availabilityZone string, filter *ec2.Filter) (*EC2Monitor, error) {
@@ -41,14 +56,14 @@ func NewEC2Monitor(s *ec2.EC2, instanceType, productDescription, availabilityZon
 	return desc, nil
 }
 
-func (s *EC2Monitor) Start(interval time.Duration) (chan PricePoint, chan error) {
+func (s *EC2Monitor) Start(interval time.Duration) (chan *PricePoint, chan error) {
 
 	// start any previous monitor
 	if s.active {
 		s.Stop()
 	}
 
-	c := make(chan PricePoint)
+	c := make(chan *PricePoint)
 	errChan := make(chan error)
 
 	go monitor(s, interval, c, errChan)
@@ -69,7 +84,7 @@ func (s *EC2Monitor) Active() bool {
 }
 
 // Only sends prices when they
-func monitor(s *EC2Monitor, interval time.Duration, c chan PricePoint, errChan chan error) {
+func monitor(s *EC2Monitor, interval time.Duration, c chan *PricePoint, errChan chan error) {
 
 	from := time.Now()
 
@@ -111,7 +126,7 @@ func monitor(s *EC2Monitor, interval time.Duration, c chan PricePoint, errChan c
 					latest.timeStamp.Before(pp.timeStamp)) {
 
 					latest = pp
-					c <- *pp
+					c <- pp
 				}
 			}
 		case <-s.quit:
@@ -130,8 +145,8 @@ func (s *EC2Monitor) Key() string {
 	return fmt.Sprintf("%s.%s.%s", s.request.AvailabilityZone, s.request.InstanceType, s.request.ProductDescription)
 }
 
-func (s *EC2Monitor) Trace(from time.Time) ([]PricePoint, error) {
-	to := time.Now()
+func (s *EC2Monitor) Trace(from, to time.Time) ([]PricePoint, error) {
+	// to := time.Now()
 
 	// date must be non-zero
 	if from.IsZero() {

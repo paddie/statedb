@@ -57,7 +57,7 @@ func RestoreCheckpoint(t *testing.T) {
 		t.Error(err)
 	}
 
-	db, restored, err := NewStateDB(f, mdl, mon, 1.0, false)
+	db, restored, err := NewStateDB(f, mdl, mon, 1.0, "")
 	if err != nil {
 		t.Fatal(err)
 		return
@@ -74,7 +74,7 @@ func RestoreCheckpoint(t *testing.T) {
 			weird := new(Weird)
 			_, ok := it.Next(weird)
 			if !ok {
-				break
+				// break
 			}
 
 			// fmt.Println(weird)
@@ -140,7 +140,7 @@ func WriteFullAndDelta(t *testing.T) {
 		t.Error(err)
 	}
 
-	db, restored, err := NewStateDB(f, mdl, mon, 1.0, false)
+	db, restored, err := NewStateDB(f, mdl, mon, 1.0, "")
 	if err != nil {
 		t.Fatal(err)
 		return
@@ -150,7 +150,7 @@ func WriteFullAndDelta(t *testing.T) {
 		t.Fatal("StateDB: should not have restored at this time")
 	}
 
-	t_str := ReflectTypeM(&Weird{})
+	t_str := ReflectTypeM(Weird{})
 
 	resp := make(chan *KeyType)
 	n := 0
@@ -219,6 +219,9 @@ func WriteFullAndDelta(t *testing.T) {
 }
 
 func TestCheckpoint(t *testing.T) {
+
+	t.Skip()
+
 	path := "cpt_test"
 
 	CleanUp(path)

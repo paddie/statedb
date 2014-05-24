@@ -95,13 +95,14 @@ func (tl *TimeLine) Tick() *CheckpointTrace {
 	tl.SyncCnt++
 
 	tl.Lock()
-	defer tl.Unlock()
 	tl.events = append(tl.events, c)
 	tl.SyncStarts = append(tl.SyncStarts, now.Sub(tl.Start))
 	// placeholders
 	tl.SyncDurations = append(tl.SyncDurations, time.Duration(0))
 	tl.MdlDurations = append(tl.MdlDurations, time.Duration(0))
 	tl.EncDurations = append(tl.EncDurations, time.Duration(0))
+	tl.Unlock()
+
 	return c
 }
 
@@ -109,7 +110,7 @@ func (tl *TimeLine) Tock(c *CheckpointTrace) {
 	// tl.Lock()
 	// defer tl.Unlock()
 	// tl.Starts[c.id] = c.Start
-	tl.SyncDurations[c.id] = c.Duration
+	tl.SyncDurations[c.id] = c.SyncDuration
 	tl.MdlDurations[c.id] = c.MdlDuration
 	tl.EncDurations[c.id] = c.EncDuration
 }
@@ -155,7 +156,6 @@ func (t *CheckpointTrace) Abort() {
 	t.Aborted = true
 	// t.End = now
 	// t.Total = now.Sub(t.Start)
-	t.tl.Tock(t)
 }
 
 func (t *CheckpointTrace) SyncStart() {
@@ -164,7 +164,7 @@ func (t *CheckpointTrace) SyncStart() {
 
 func (t *CheckpointTrace) SyncEnd() {
 	t.SyncDuration = t.time() - t.SncStart
-	// t.checkDone()
+	t.tl.Tock(t)
 }
 
 func (t *CheckpointTrace) EncodingEnd() {

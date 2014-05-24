@@ -4,7 +4,7 @@ import (
 	"bytes"
 	"encoding/gob"
 	"errors"
-	"fmt"
+	// "fmt"
 	"reflect"
 )
 
@@ -80,7 +80,7 @@ func (db *StateDB) Insert(i interface{}) (*KeyType, error) {
 	if ok {
 		mut := m.Mutable()
 		if mut != nil {
-			fmt.Println("Inserting Mutable part of " + kt.String())
+			// fmt.Println("Inserting Mutable part of " + kt.String())
 			mutv := reflect.ValueOf(mut)
 			if err := validateMutableEntry(mutv); err != nil {
 				return nil, err
@@ -94,7 +94,7 @@ func (db *StateDB) Insert(i interface{}) (*KeyType, error) {
 	}
 
 	// ship the operation to be inserted
-	fmt.Println("Inserting kt: ", kt.String())
+	// fmt.Println("Inserting kt: ", kt.String())
 	db.op_chan <- so
 
 	// wait for response

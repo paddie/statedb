@@ -45,8 +45,8 @@ func educate(model Model, monitor Monitor, nx *ModelNexus, bid float64) {
 
 	to := time.Now()
 	from := to.AddDate(0, -3, 0)
-
 	trace, err := monitor.Trace(from, to)
+	// trace, err := monitor.Trace(from, to)
 	if err != nil {
 		nx.errChan <- err
 		return
@@ -73,8 +73,8 @@ func educate(model Model, monitor Monitor, nx *ModelNexus, bid float64) {
 			}
 			q.cptChan <- do
 		case pp := <-C:
-			err := model.PriceUpdate(pp.SpotPrice(), pp.TimeStamp())
-			timeline.PriceChange(pp.SpotPrice())
+			err := model.PriceUpdate(pp.Price(), pp.Time())
+			timeline.PriceChange(pp.Price())
 			if err != nil {
 				nx.errChan <- err
 			}
@@ -86,20 +86,22 @@ func educate(model Model, monitor Monitor, nx *ModelNexus, bid float64) {
 		case _ = <-nx.quitChan:
 			// shut down monitor..
 			monitor.Stop()
+			fmt.Println("Monitor has been shut down")
 			// shut down model..
 			err := model.Quit()
 			if err != nil {
 				nx.errChan <- err
 			}
-			fmt.Println("Exiting from Model")
+			fmt.Println("Model has been shut down")
 			return
 		case err := <-errChan:
+			fmt.Printf("Monitor panicked: <%s>", err.Error())
 			nx.errChan <- err
 			err = model.Quit()
 			if err != nil {
 				nx.errChan <- err
 			}
-			fmt.Println("Exiting from Model")
+			fmt.Println("Model has been shut down")
 			return
 		}
 	}

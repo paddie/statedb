@@ -5,6 +5,20 @@ import (
 	"time"
 )
 
+// type PricePoint struct {
+// 	spotPrice float64
+// 	timeStamp time.Time
+// 	key       string
+// }
+
+// func (p *PricePoint) Price() float64 {
+// 	return p.spotPrice
+// }
+
+// func (p *PricePoint) Time() time.Time {
+// 	return p.timeStamp
+// }
+
 type TestMonitor struct {
 	points   []PricePoint
 	tick     *time.Ticker
@@ -15,26 +29,8 @@ type TestMonitor struct {
 func NewTestMonitor(interval time.Duration) *TestMonitor {
 
 	prices := []float64{
-		1.2,
-		1.3,
-		1.0,
-		1.5,
-		1.1,
-		0.9,
-		0.8,
-		1.3,
-		1.6,
-		0.7,
-		0.6,
-		0.7,
-		1.9,
-		2.0,
-		1.5,
-		1.2,
-		1.3,
-		1.4,
-		1.1,
-		1.0,
+		1.2, 1.3, 1.0, 1.5, 1.1, 0.9, 0.8, 1.3, 1.6, 0.7,
+		0.6, 0.7, 1.9, 2.0, 1.5, 1.2, 1.3, 1.4, 1.1, 1.0,
 	}
 
 	tm := &TestMonitor{
@@ -43,7 +39,7 @@ func NewTestMonitor(interval time.Duration) *TestMonitor {
 
 	now := time.Now()
 	for i := 0; i < len(prices); i++ {
-		now = now.Add(time.Minute * 5)
+		now = now.Add(interval)
 
 		tm.points = append(tm.points, PricePoint{
 			spotPrice: prices[i],
@@ -51,7 +47,6 @@ func NewTestMonitor(interval time.Duration) *TestMonitor {
 			key:       "test.key",
 		})
 	}
-
 	return tm
 }
 
@@ -63,12 +58,9 @@ func (t *TestMonitor) Trace(_, _ time.Time) ([]PricePoint, error) {
 func (t *TestMonitor) Start(_ time.Duration) (chan PricePoint, chan error) {
 
 	priceChan := make(chan PricePoint)
-
 	t.tick = time.NewTicker(t.interval)
 	go pitcher(t.tick.C, t.points, priceChan)
-
 	t.active = true
-
 	return priceChan, nil
 }
 

@@ -26,7 +26,7 @@ func (r *RisingEdge) Train(trace []PricePoint, _ float64) error {
 		return nil
 	}
 
-	r.price = trace[len(trace)-1].SpotPrice()
+	r.price = trace[len(trace)-1].Price()
 
 	return nil
 }
@@ -36,11 +36,12 @@ func (r *RisingEdge) StatUpdate(_, _ float64) error {
 }
 
 func (r *RisingEdge) PriceUpdate(p float64, _ time.Time) error {
-	fmt.Printf("PriceChange: %.4f --> %.4f\n", r.price, p)
 	if r.price < p {
-		fmt.Println("Signalling checkpoint at next sync")
+		fmt.Printf("<Rising> %.4f --> %.4f: checkpoint at next sync\n", r.price, p)
+		// fmt.Println("signalling checkpoint at next sync")
 		r.risen = true
 	} else {
+		fmt.Printf("<Rising> %.4f --> %.4f: no checkpoint at sync\n", r.price, p)
 		r.risen = false
 	}
 	r.price = p
