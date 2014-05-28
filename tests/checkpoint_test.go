@@ -46,7 +46,7 @@ func CleanUp(path string) error {
 }
 
 func RestoreCheckpoint(t *testing.T) {
-	mdl := schedular.NewRisingEdge()
+	mdl := schedular.NewAlways()
 
 	// s :=  monitor.NewEC2Instance(s, instanceType, productDescription, availabilityZone, filter)
 	mon := monitor.NewTestMonitor(time.Second * 5)
@@ -209,7 +209,7 @@ func WriteFullAndDelta(t *testing.T) {
 			}
 		}
 	}
-	kt, _ := NewStringKeyType("4", t_str)
+	kt, _ := statedb.NewStringKeyType("4", t_str)
 	if db.immutable.contains(kt) {
 		t.Error("kt " + kt.String() + " was not deleted.")
 	}
