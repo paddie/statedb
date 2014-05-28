@@ -18,7 +18,7 @@ func NewTimedModel(interval time.Duration) *TimedModel {
 }
 
 func (r *TimedModel) Name() string {
-	return "TimedModel"
+	return "TimedSchedular"
 }
 
 func (r *TimedModel) Train(_ []statedb.PricePoint, _ float64) error {
