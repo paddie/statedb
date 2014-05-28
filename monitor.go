@@ -35,4 +35,5 @@ type Monitor interface {
 	Start(interval time.Duration, pChan chan PricePoint, errChan chan error) error
 	Stop()
 	Active() bool
+	Name() string
 }
