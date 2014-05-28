@@ -76,6 +76,7 @@ var (
 	model      bool
 	monitor    bool
 	checkpoint bool
+	factor     float64
 )
 
 func init() {
@@ -84,6 +85,7 @@ func init() {
 	flag.BoolVar(&commit, "commit", false, "plot cpts times and durations")
 	flag.BoolVar(&syncs, "sync", false, "plot sync times and durations")
 	flag.BoolVar(&model, "model", false, "plot model times and durations")
+	flag.Float64Var(&factor, "factor", 2000.0, "How to scale the Price when plotting")
 }
 
 func main() {
@@ -91,7 +93,7 @@ func main() {
 	flag.Parse()
 
 	if path == "" {
-		fmt.Println("No path provided")
+		fmt.Println("A path to a trace is needed.")
 		os.Exit(1)
 	}
 
@@ -123,7 +125,7 @@ func main() {
 
 	// if price {
 	for i, v := range tl.PriceChanges {
-		tl.PriceChanges[i] = v * 2000
+		tl.PriceChanges[i] = v * factor
 	}
 
 	pc, err := NewPriceTraces(tl.PriceTimes, tl.PriceChanges)

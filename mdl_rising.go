@@ -22,7 +22,7 @@ func (r *RisingEdge) Name() string {
 
 func (r *RisingEdge) Train(trace []PricePoint, _ float64) error {
 
-	if len(trace) > 0 {
+	if len(trace) == 0 {
 		return nil
 	}
 
