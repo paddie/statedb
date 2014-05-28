@@ -11,8 +11,8 @@ type Model interface {
 	Name() string
 	Train(trace []PricePoint, bid float64) error
 	PriceUpdate(cost float64, datetime time.Time) error
-	StatUpdate(restartTimeMinutes, checkpointTimeMinutes float64) error
-	Checkpoint(minutesSinceCpt, avgSyncTimeMinutes, AliveMinutes float64) (bool, error)
+	StatUpdate(stat *Stat) error
+	Checkpoint(stat *Stat) (bool, error)
 	Quit() error
 }
 
@@ -70,13 +70,16 @@ func educate(model Model, monitor Monitor, nx *ModelNexus, bid float64) {
 	for {
 		select {
 		case q := <-nx.cptQueryChan:
-			do, err := model.Checkpoint(
-				q.s.RestoreTime(),        // time to restore
-				q.s.ExpWriteCheckpoint(), // time to cpt
-				q.s.AvgSyncMinutes())     // avg. sync time
+			do, err := model.Checkpoint(q.s) // avg. sync time
 			if err != nil {
 				nx.errChan <- err
 			}
+			if do {
+				fmt.Println("Schedular: take checkpoint!")
+			} else {
+				fmt.Println("Scheduar: skip checkpoint")
+			}
+
 			q.cptChan <- do
 		case pp := <-C:
 			err := model.PriceUpdate(pp.Price(), pp.Time())
@@ -85,7 +88,7 @@ func educate(model Model, monitor Monitor, nx *ModelNexus, bid float64) {
 				nx.errChan <- err
 			}
 		case s := <-nx.statChan:
-			err := model.StatUpdate(s.RestoreTime(), s.ExpWriteCheckpoint())
+			err := model.StatUpdate(&s)
 			if err != nil {
 				nx.errChan <- err
 			}

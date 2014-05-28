@@ -52,7 +52,7 @@ func stateLoop(db *StateDB, mnx *ModelNexus, cnx *CommitNexus, path string) {
 		case m := <-db.sync_chan:
 			// if an active commit is running
 			// ignore this sync
-			stat.markSyncPoint()
+			stat.markConsistent()
 
 			// if there is an ongoing commit
 			// return immediately

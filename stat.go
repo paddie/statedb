@@ -9,68 +9,77 @@ import (
 type Stat struct {
 	// cpt bool
 	// read/write stats
-	t_i, t_m       float64 // time to cpt imm and mut
-	t_d            float64 // time to cpt delta
-	t_r            float64 // time to restore from previous cpt
-	i, m, d_i, d_m int     // size of each database
-	phi_i, phi_m   float64 // avg. cpt time pr. database
+	t_i, t_m       time.Duration // time to cpt imm and mut
+	t_d            time.Duration // time to cpt delta
+	t_r            time.Duration // time to restore from previous cpt
+	i, m, d_i, d_m int64         // size of each database
+	phi_i, phi_m   time.Duration // avg. cpt time pr. database
 	// wall-clock datetime for events
-	lastSync       time.Time
+	lastConsistent time.Time
+	avgConsistent  *avgbuffer.AVGDuration
+
 	lastCheckpoint time.Time
-	alive          time.Time
-	syncBuffer     *avgbuffer.AVGBuffer
-	cpt_type       int
+	avgCheckpoint  *avgbuffer.AVGDuration
+	// cpt_type       int
+	start time.Time
 }
 
 func NewStat(buffSize int) *Stat {
 	if buffSize < 1 {
 		buffSize = 1
 	}
-	return &Stat{
-		syncBuffer:     avgbuffer.NewAVGBuffer(buffSize),
-		lastSync:       time.Now(),
-		lastCheckpoint: time.Now(),
-	}
-}
-
-func (s *Stat) Delta() int {
-	return s.d_i
-}
-
-func (s *Stat) AliveMinutes() float64 {
-	return time.Now().Sub(s.alive).Minutes()
-}
-
-func (s *Stat) SinceCptMinutes() float64 {
-	return time.Now().Sub(s.lastCheckpoint).Minutes()
-}
-
-func (s *Stat) AvgSyncMinutes() float64 {
-	return s.syncBuffer.AVG()
-}
-
-func (s *Stat) markSyncPoint() {
 
 	now := time.Now()
 
-	if s.lastSync.IsZero() {
-		s.lastSync = now
+	return &Stat{
+		avgConsistent:  avgbuffer.NewAVGDuration(buffSize),
+		lastConsistent: now,
+		lastCheckpoint: now,
+	}
+}
+
+func (s *Stat) Delta() int64 {
+	return s.d_i
+}
+
+func (s *Stat) DurationAlive() time.Duration {
+	return time.Now().Sub(s.start)
+}
+
+func (s *Stat) LastCheckpoint() time.Duration {
+	return time.Now().Sub(s.lastCheckpoint)
+}
+
+func (s *Stat) AvgCheckpoint() time.Duration {
+	return s.avgCheckpoint.TAVG()
+}
+
+func (s *Stat) LastConsistent() time.Duration {
+	return time.Now().Sub(s.lastConsistent)
+}
+
+func (s *Stat) AvgConsistent() time.Duration {
+	return s.avgConsistent.TAVG()
+}
+
+func (s *Stat) markConsistent() {
+	now := time.Now()
+	if s.lastConsistent.IsZero() {
+		s.lastConsistent = now
 		return
 	}
-
-	dur := now.Sub(s.lastSync)
-	s.syncBuffer.Upsert(dur.Minutes())
-	s.lastSync = now
+	s.avgConsistent.Upsert(now.Sub(s.lastConsistent))
+	s.lastConsistent = now
 }
 
 // i,m \in {0,1}
-func (s *Stat) insert(i, m int) {
+func (s *Stat) insert(i, m int64) {
 	s.d_i += i
 	s.d_m += m
 }
 
 // i,m \in {0,1}
-func (s *Stat) remove(i, m int) {
+func (s *Stat) remove(i, m int64) {
 	s.d_i -= i
 	s.d_m -= m
 }
@@ -78,8 +87,9 @@ func (s *Stat) remove(i, m int) {
 // Update stats with information after a zero-checkpoint
 func (s *Stat) zeroCPT(i_dur, m_dur time.Duration) {
 
-	T_i := i_dur.Minutes()
-	T_m := m_dur.Minutes()
+	T_i := i_dur
+	T_m := m_dur
+
 	s.lastCheckpoint = time.Now()
 	// update write times
 	s.t_i = T_i
@@ -96,15 +106,15 @@ func (s *Stat) zeroCPT(i_dur, m_dur time.Duration) {
 	s.d_m = 0
 
 	// update approximated values
-	s.phi_i = s.t_i / float64(s.i)
-	s.phi_m = s.t_m / float64(s.m)
+	s.phi_i = time.Duration(float64(s.t_i) / float64(s.i))
+	s.phi_m = time.Duration(float64(s.t_m) / float64(s.m))
 }
 
 // Update stats with information after a delta-checkpoint
 func (s *Stat) deltaCPT(m_dur, d_dur time.Duration) {
 
-	T_m := m_dur.Minutes()
-	T_d := d_dur.Minutes()
+	T_m := m_dur
+	T_d := d_dur
 	s.lastCheckpoint = time.Now()
 
 	// restore calculation
@@ -122,16 +132,16 @@ func (s *Stat) deltaCPT(m_dur, d_dur time.Duration) {
 	s.d_m = 0
 
 	// update approximated values
-	s.phi_m = s.t_m / float64(s.m)
+	s.phi_m = time.Duration(float64(s.t_m) / float64(s.m))
 }
 
 // Time to restore from the precious checkpoint
-func (s *Stat) RestoreTime() float64 {
+func (s *Stat) RestoreTime() time.Duration {
 	return s.t_r
 }
 
 // Expected write-time of a checkpoint
-func (s *Stat) ExpWriteCheckpoint() float64 {
+func (s *Stat) ExpWriteCheckpoint() time.Duration {
 	if s.d_i > 0 {
 		return s.expWriteZero()
 	}
@@ -142,27 +152,27 @@ func (s *Stat) ExpWriteCheckpoint() float64 {
 // using the average write time
 // pr. entry in each database
 // Φ(W_∆) = T_M +∆_I ·φ_I +∆_M ·φ_M
-func (s *Stat) expWriteDelta() float64 {
+func (s *Stat) expWriteDelta() time.Duration {
 
-	if s.t_i == 0.0 || s.t_m == 0.0 {
-		return -1.0
+	if s.t_i == 0 || s.t_m == 0 {
+		return -1
 	}
 
-	return s.t_m + float64(s.d_i)*s.phi_i + float64(s.d_m)*s.phi_m
+	return s.t_m + time.Duration(s.d_i)*s.phi_i + time.Duration(s.d_m)*s.phi_m
 }
 
 // Expected writing time of a zero-checkpoint
 // using the average write time pr. entry in each database
 // Φ(W_Z) = T_I +T_M +∆_I ·φ_I +∆_M ·φ_M
-func (s *Stat) expWriteZero() float64 {
-	if s.t_i == 0.0 || s.t_m == 0.0 {
-		return -1.0
+func (s *Stat) expWriteZero() time.Duration {
+	if s.t_i == 0 || s.t_m == 0 {
+		return -1
 	}
 
-	return s.t_i + s.t_m + float64(s.d_i)*s.phi_i + float64(s.d_m)*s.phi_m
+	return s.t_i + s.t_m + time.Duration(s.d_i)*s.phi_i + time.Duration(s.d_m)*s.phi_m
 }
 
-func (s *Stat) ExpReadCheckpoint() float64 {
+func (s *Stat) ExpReadCheckpoint() time.Duration {
 	if s.d_i > 0 {
 		return s.expReadZero()
 	}
@@ -173,24 +183,24 @@ func (s *Stat) ExpReadCheckpoint() float64 {
 // using the average write\approxread time
 // pr. entry in each database
 // Φ(R_Z) = TI + TM + ∆I * φI + ∆M * φM
-func (s *Stat) expReadZero() float64 {
+func (s *Stat) expReadZero() time.Duration {
 
-	if s.t_i == 0.0 || s.t_m == 0.0 {
-		return -1.0
+	if s.t_i == 0 || s.t_m == 0 {
+		return -1
 	}
 
-	return s.t_i + s.t_m + float64(s.d_i)*s.phi_i + float64(s.d_m)*s.phi_m
+	return s.t_i + s.t_m + time.Duration(s.d_i)*s.phi_i + time.Duration(s.d_m)*s.phi_m
 }
 
 // Expected restore-time of a delta-checkpoint
 // using the average write\approxread time
 // pr. entry in each database
 // Φ(R_∆) = TI +TM +T∆ +∆I ·φI +∆M ·φM
-func (s *Stat) expReadDelta() float64 {
+func (s *Stat) expReadDelta() time.Duration {
 
-	if s.t_i == 0.0 || s.t_m == 0.0 {
-		return -1.0
+	if s.t_i == 0 || s.t_m == 0 {
+		return -1
 	}
 
-	return s.t_i + s.t_m + s.t_d + float64(s.d_i)*s.phi_i + float64(s.d_m)*s.phi_m
+	return s.t_i + s.t_m + s.t_d + time.Duration(s.d_i)*s.phi_i + time.Duration(s.d_m)*s.phi_m
 }
