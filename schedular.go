@@ -57,7 +57,13 @@ func educate(model Model, monitor Monitor, nx *ModelNexus, bid float64) {
 		return
 	}
 
-	C, errChan := monitor.Start(5 * time.Minute)
+	C := make(chan PricePoint)
+	errChan := make(chan error)
+
+	if err = monitor.Start(5*time.Minute, C, errChan); err != nil {
+		nx.errChan <- err
+		return
+	}
 
 	fmt.Printf("Starting model <%s>\n", model.Name())
 

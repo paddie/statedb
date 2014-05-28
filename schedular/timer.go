@@ -1,8 +1,8 @@
-package statedb
+package schedular
 
 import (
 	// "errors"
-	// "github.com/paddie/statedb"
+	"github.com/paddie/statedb"
 	"time"
 )
 
@@ -21,7 +21,7 @@ func (r *TimedModel) Name() string {
 	return "TimedModel"
 }
 
-func (r *TimedModel) Train(_ []PricePoint, _ float64) error {
+func (r *TimedModel) Train(_ []statedb.PricePoint, _ float64) error {
 	r.lastCpt = time.Now()
 	return nil
 }
