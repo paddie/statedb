@@ -111,17 +111,6 @@ func (ctx *Context) DeltaPaths() []string {
 	return paths
 }
 
-// When restoring, this helps identify the type of the final checkpoint.
-// func (ctx *Context) Type() string {
-// 	if ctx.RCID > 0 {
-// 		if ctx.MCNT > 0 {
-// 			return "DeltaCPT"
-// 		}
-// 		return "ZeroCPT"
-// 	}
-// 	return "ZeroCPT"
-// }
-
 func (c *Context) FlipCtxID() {
 	if c.CtxID == 1 {
 		c.CtxID = 0
