@@ -108,11 +108,19 @@ func commitLoop(fs Persistence, cnx *CommitNexus) {
 
 		// encode the context and flip-flop to disk
 		c.ctx_err = commitContext(fs, r.ctx)
+
 		// note the checkpoint time with the timeline
 		timeline.Commit(start)
-		fmt.Println("registered commit time")
 		// send the durations back to statistics module
 		cnx.comRespChan <- c
+
+		// remove previos checkpoint
+		if c.Success() {
+			err := fs.Delete(c.ctx.CleanPath())
+			if err != nil {
+				fmt.Println(err)
+			}
+		}
 	}
 
 	fmt.Println("Committer has shut down")
@@ -135,6 +143,10 @@ func commit_t(fs Persistence, path string, data []byte) (time.Duration, error) {
 	err := fs.Put(path, data)
 
 	return time.Now().Sub(now), err
+}
+
+func remove(fs Persistence, path string) error {
+	return fs.Delete(path)
 }
 
 func async_commit(fs Persistence, path string, data []byte, tc chan<- *TimedCommit) {

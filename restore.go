@@ -25,6 +25,34 @@ type Iterator struct {
 	db      *StateDB
 }
 
+// func (iter *Iter) All(result interface{}) error {
+// 	resultv := reflect.ValueOf(result)
+// 	if resultv.Kind() != reflect.Ptr || resultv.Elem().Kind() != reflect.Slice {
+// 		panic("result argument must be a slice address")
+// 	}
+// 	slicev := resultv.Elem()
+// 	slicev = slicev.Slice(0, slicev.Cap())
+// 	elemt := slicev.Type().Elem()
+// 	i := 0
+// 	for {
+// 		if slicev.Len() == i {
+// 			elemp := reflect.New(elemt)
+// 			if !iter.Next(elemp.Interface()) {
+// 				break
+// 			}
+// 			slicev = reflect.Append(slicev, elemp.Elem())
+// 			slicev = slicev.Slice(0, slicev.Cap())
+// 		} else {
+// 			if !iter.Next(slicev.Index(i).Addr().Interface()) {
+// 				break
+// 			}
+// 		}
+// 		i++
+// 	}
+// 	resultv.Elem().Set(slicev.Slice(0, i))
+// 	return iter.Close()
+// }
+
 func (it *Iterator) Next(imm interface{}) (*KeyType, bool) {
 
 	if it == nil {

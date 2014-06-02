@@ -111,6 +111,18 @@ func (ctx *Context) DeltaPaths() []string {
 	return paths
 }
 
+func (ctx *Context) CleanPath() string {
+	if ctx.Type == DELTACPT {
+		return fmt.Sprintf("%d/mut_%d.cpt", ctx.RCID, ctx.MCNT-1)
+	}
+
+	if ctx.RCID == 1 {
+		return ""
+	}
+
+	return fmt.Sprintf("%d/", ctx.RCID-1)
+}
+
 func (c *Context) FlipCtxID() {
 	if c.CtxID == 1 {
 		c.CtxID = 0
