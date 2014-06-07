@@ -7,13 +7,28 @@ import (
 	"time"
 )
 
-type Model interface {
+type Schedular interface {
 	Name() string
 	Train(trace []PricePoint, bid float64) error
+	Start(chan<- bool, chan<- error) error
 	PriceUpdate(cost float64, datetime time.Time) error
 	StatUpdate(stat *Stat) error
 	Checkpoint(stat *Stat) (bool, error)
 	Quit() error
+	Preemptive() bool
+}
+
+type event int
+
+const (
+	CHECKPOINTCOMMIT event = iota
+	STATEREGISTER
+	STATEUNREGISTER
+	POINTOFCONSISTENCY
+)
+
+type SchedEvent interface {
+	Event() event
 }
 
 type ModelNexus struct {
@@ -21,15 +36,24 @@ type ModelNexus struct {
 	statChan     chan Stat
 	cptQueryChan chan *CheckpointQuery
 	quitChan     chan bool
+	preemptChan  chan bool
+	preempt      bool
 }
 
-func NewModelNexus() *ModelNexus {
-	return &ModelNexus{
+func NewModelNexus(preempt bool) *ModelNexus {
+	mnx := &ModelNexus{
 		statChan:     make(chan Stat, 1),
 		cptQueryChan: make(chan *CheckpointQuery),
 		errChan:      make(chan error),
 		quitChan:     make(chan bool),
 	}
+
+	if preempt {
+		mnx.preemptChan = make(chan bool)
+		mnx.preempt = true
+	}
+
+	return mnx
 }
 
 func (nx *ModelNexus) Quit() {
@@ -41,31 +65,37 @@ func (nx *ModelNexus) Quit() {
 	close(nx.quitChan)
 }
 
-func educate(model Model, monitor Monitor, nx *ModelNexus, bid float64) {
+func educate(sched Schedular, monitor Monitor, nx *ModelNexus, bid float64) {
 
-	to := time.Now()
-	from := to.AddDate(0, -3, 0)
-	trace, err := monitor.Trace(from, to)
-	// trace, err := monitor.Trace(from, to)
+	// Collect trace from the monitor
+	trace, err := monitor.Trace()
 	if err != nil {
 		nx.errChan <- err
 		return
 	}
 
-	if err := model.Train(trace, bid); err != nil {
+	if err := sched.Train(trace, bid); err != nil {
 		nx.errChan <- err
 		return
 	}
 
+	fmt.Printf("Starting schedular: <%s>\n", sched.Name())
+	schedErrChan := make(chan error)
+	if err := sched.Start(nx.preemptChan, schedErrChan); err != nil {
+		nx.errChan <- fmt.Errorf("Schedular: %s", err.Error())
+		return
+	}
+
+	fmt.Printf("Starting monitor: <%s>\n", monitor.Name())
+	// price-change channel
 	C := make(chan PricePoint)
-	errChan := make(chan error)
+	// error channel for monitor
+	monErrChan := make(chan error)
 
-	if err = monitor.Start(5*time.Minute, C, errChan); err != nil {
-		nx.errChan <- err
-		return
+	if err = monitor.Start(C, monErrChan); err != nil {
+		// shuts down the schedular etc.
+		go reportError(monErrChan, err)
 	}
-
-	fmt.Printf("Starting model <%s>\n", model.Name())
 
 	for {
 		select {
@@ -103,15 +133,30 @@ func educate(model Model, monitor Monitor, nx *ModelNexus, bid float64) {
 			}
 			fmt.Println("Model has been shut down")
 			return
-		case err := <-errChan:
-			fmt.Printf("Monitor panicked: <%s>", err.Error())
+		case err := <-monErrChan:
+			err = fmt.Errorf("Monitor panicked: <%s>", err.Error())
+
+			fmt.Println(err.Error())
+			// send error to stateloop
 			nx.errChan <- err
-			err = model.Quit()
-			if err != nil {
-				nx.errChan <- err
-			}
-			fmt.Println("Model has been shut down")
+			// quit schedular
+			_ = sched.Quit()
+			fmt.Println("Schedular has been shut down")
+			return
+		case err := <-schedErrChan:
+			err = fmt.Errorf("Schedular panicked: <%s>", err.Error())
+			fmt.Println(err.Error())
+			// send error to stateloop
+			nx.errChan <- err
+			// quit schedular
+			_ = monitor.Stop()
+			fmt.Println("Monitor has been shut down")
 			return
 		}
 	}
+}
+
+func reportError(errChn <-chan error, err error) {
+	errChn <- err
+	return
 }

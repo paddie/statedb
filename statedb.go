@@ -13,8 +13,12 @@ import (
 	"sync"
 )
 
+type CPTTYPE int
+
+type OPERATION int
+
 const (
-	ZEROCPT = iota
+	ZEROCPT CPTTYPE = iota
 	DELTACPT
 	NONDETERMCPT
 	STATS
@@ -52,10 +56,9 @@ type StateDB struct {
 	// tl           *TimeLine
 }
 
-// func (db *StateDB) Restored() bool {
-// 	return db.restored
-// }
-
+// If StateDB was restored, ensure that:
+// 1) All previous mutable data has been restored
+// 2) All mutable entries that have not been restored are deleted
 func (db *StateDB) readyCheckpoint() bool {
 
 	if !db.restored {
@@ -75,7 +78,7 @@ func (db *StateDB) readyCheckpoint() bool {
 	return true
 }
 
-func NewStateDB(fs Persistence, model Model, monitor Monitor, bid float64, path string) (*StateDB, bool, error) {
+func NewStateDB(fs Persistence, sched Schedular, monitor Monitor, bid float64, path string) (*StateDB, bool, error) {
 
 	// Initialize the directories
 	db, err := restore(fs)
@@ -98,8 +101,8 @@ func NewStateDB(fs Persistence, model Model, monitor Monitor, bid float64, path 
 	cnx := NewCommitNexus()
 	go commitLoop(fs, cnx)
 
-	mnx := NewModelNexus()
-	go educate(model, monitor, mnx, bid)
+	mnx := NewModelNexus(sched.Preemptive())
+	go educate(sched, monitor, mnx, bid)
 
 	go stateLoop(db, mnx, cnx, path)
 	return db, db.restored, nil
@@ -112,144 +115,6 @@ func (db *StateDB) Types() []string {
 		ts = append(ts, t)
 	}
 	return ts
-}
-
-type stateOperation struct {
-	kt     *KeyType
-	imm    []byte
-	mut    *MutState
-	action int
-	err    chan error
-}
-
-// Sync is a call for consistency; if the monitor has signalled a checkpoint
-// a checkpoint will be committed. During this time, we cannot allow any processes to
-// write or delete objects in the database.
-func (db *StateDB) Sync() error {
-	// response channel
-	err := make(chan error)
-	c := timeline.Tick()
-	c.SyncStart()
-	db.sync_chan <- &msg{
-		time:    time.Now(),
-		err:     err,
-		t:       c,
-		cptType: NONDETERMCPT,
-	}
-	e := <-err
-	c.SyncEnd()
-	if e == ActiveCommitError {
-		return nil
-	}
-	return e
-}
-
-func (db *StateDB) forceCheckpoint() error {
-	err := make(chan error)
-	c := timeline.Tick()
-	c.SyncStart()
-	db.sync_chan <- &msg{
-		time:     time.Now(),
-		err:      err,
-		forceCPT: true,
-		cptType:  NONDETERMCPT,
-		t:        c,
-	}
-	e := <-err
-	c.SyncEnd()
-	if e == ActiveCommitError {
-		return nil
-	}
-	return e
-}
-
-func (db *StateDB) forceDeltaCPT() error {
-	err := make(chan error)
-	c := timeline.Tick()
-	c.SyncStart()
-	db.sync_chan <- &msg{
-		time:     time.Now(),
-		err:      err,
-		forceCPT: true,
-		cptType:  DELTACPT,
-		t:        c,
-	}
-	c.SyncEnd()
-	return <-err
-}
-
-func (db *StateDB) forceZeroCPT() error {
-	errChan := make(chan error)
-	c := timeline.Tick()
-	c.SyncStart()
-	db.sync_chan <- &msg{
-		time:     time.Now(),
-		err:      errChan,
-		forceCPT: true,    // don't query schedular
-		cptType:  ZEROCPT, // force a zero checkpoint
-		t:        c,
-	}
-	c.SyncEnd()
-	return <-errChan
-}
-
-func (db *StateDB) forceZeroCPTBlock() error {
-
-	errChan := make(chan error)
-	commitBlock := make(chan error)
-
-	c := timeline.Tick()
-	c.SyncStart()
-	m := &msg{
-		time:     time.Now(),
-		err:      errChan,
-		forceCPT: true,
-		cptType:  ZEROCPT,
-		t:        c,
-		waitChan: commitBlock,
-	}
-	db.sync_chan <- m
-
-	if err := <-errChan; err != nil {
-		if err == ActiveCommitError {
-			// if we sent a final commit while another commit
-			// was being checkpointed, the commitBlock
-			// will be signalled once *any* commit returns
-			<-commitBlock
-			db.sync_chan <- m
-			err = <-errChan
-			if err != nil {
-				return err
-			}
-		} else {
-			return err
-		}
-	}
-	c.SyncEnd()
-	fmt.Println("waiting for commit")
-	err := <-commitBlock
-	fmt.Println("Complete was final!")
-	// block until the final checkpoint is completed
-	return err
-}
-
-// When called, all checkpointing is shut down,
-// and a final, full checkpoint is written to disk.
-func (db *StateDB) Commit() error {
-
-	// force a zero checkpoint and wait
-	// till the checkpoint has been fully committed
-	err := db.forceZeroCPTBlock()
-	if err != nil {
-		return err
-	}
-	fmt.Println("sending quit signal..")
-	// send an error chan on which to respond in the
-	// case of shut down issues
-	errChan := make(chan error)
-	db.quit <- errChan
-
-	return <-errChan
 }
 
 // called from stateLoop to guarantee there is no race condition

@@ -6,7 +6,28 @@ import (
 	"time"
 )
 
-type Stat struct {
+type StateDBInfo interface {
+	// Time since last event
+	TimeSinceInit() time.Duration
+	TimeSinceLastCpt() time.Duration
+	TimeSinceLastConsistentPoint() time.Duration
+	// Averaged values
+	AvgCheckpointInterval() time.Duration
+	AvgConsistentPointInterval() time.Duration
+	// Expected restore times
+	ExpTimeToRestore() time.Duration
+	ExpTimeToCheckpoint() time.Duration
+	// Expected commit times
+	TimeToCheckpointImmutable() time.Duration
+	ExpTimeToCheckopintMutable() time.Duration
+	ExpTimeToCheckpointDelta() time.Duration
+	// Size of databases
+	SizeDelta() int
+	SizeImmutable() int
+	SizeMutable() int
+}
+
+type stat struct {
 	// cpt bool
 	// read/write stats
 	t_i, t_m       time.Duration // time to cpt imm and mut

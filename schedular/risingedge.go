@@ -1,7 +1,7 @@
 package schedular
 
 import (
-	// "errors"
+	"errors"
 	"fmt"
 	"github.com/paddie/statedb"
 	"time"
@@ -18,6 +18,18 @@ func NewRisingEdge() *RisingEdge {
 
 func (r *RisingEdge) Name() string {
 	return "RisingEdge"
+}
+
+func (r *RisingEdge) Preemptive() bool {
+	return false
+}
+
+func (r *RisingEdge) Start(_ chan bool) error {
+	return errors.New(r.Name() + " is not Preemptive!")
+}
+
+func (r *RisingEdge) Preemptive() bool {
+	return false
 }
 
 func (r *RisingEdge) Train(trace []statedb.PricePoint, _ float64) error {

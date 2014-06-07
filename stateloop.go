@@ -43,16 +43,48 @@ func stateLoop(db *StateDB, mnx *ModelNexus, cnx *CommitNexus, path string) {
 	// 1) call db.Init() to run the check to see if all states
 	//    have been restored prior to a run.
 	ready := !db.restored
+	// used to preemt a checkpoint
+	var preemptCpt bool
 	// quit := false
 
 	waitChans := []chan error{}
 
 	for {
 		select {
+		case errResp := <-db.init_chan:
+			// if statedb was not restored
+			if ready {
+				errResp <- nil
+				continue
+			}
+			// make sure that mutable states
+			// have been restored
+			ready = db.readyCheckpoint()
+			if !ready {
+				errResp <- NotRestoredError
+				continue
+			}
+			// statedb is ready to receive sync event
+			errResp <- nil
+		case schedPreempt := <-mnx.preemptChan:
+			if schedPreempt {
+				fmt.Println("Schedular preempted a checkpoint")
+				preemptCpt = true
+			} else {
+				fmt.Println("Schedular preempted a checkpoint")
+			}
 		case m := <-db.sync_chan:
 			// if an active commit is running
 			// ignore this sync
 			stat.markConsistent()
+
+			// if the database has been restored
+			// the mutable states need to be restored or
+			// deleted before a checkpoint can proceed
+			if !ready {
+				m.err <- NotRestoredError
+				continue
+			}
 
 			// if there is an ongoing commit
 			// return immediately
@@ -63,17 +95,34 @@ func stateLoop(db *StateDB, mnx *ModelNexus, cnx *CommitNexus, path string) {
 				}
 				continue
 			}
-
-			// is only checked once, to make sure that
-			// the mutable states have all been updated
-			// with new pointers.
-			if !ready {
-				ready = db.readyCheckpoint()
-				if !ready {
-					m.err <- NotRestoredError
-					continue
+			// a forced checkpoint will skip this check
+			if !m.forceCPT {
+				if !mnx.preempt {
+					// if the schedular is not preempted
+					// it is passive, and we actively
+					// query the schedular
+					// - more overhead
+					mnx.cptQueryChan <- cptQ
+					if cpt := <-cptQ.cptChan; !cpt {
+						m.err <- nil
+						t.ModelEnd()
+						t.Abort()
+						continue
+					}
+				} else {
+					// The schedular is preemptive
+					// so only check if the scheudlar
+					// has preempted a checkpoint
+					if !preemptCpt {
+						m.err <- nil
+						continue
+					}
+					preemptCpt = false
 				}
 			}
+			// 1) Schedular has requested a checkpoint
+			// 2) A checkpoint was forced by the API
+
 			// stat trace for the timeline
 			t := m.t
 
