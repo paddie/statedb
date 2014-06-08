@@ -173,6 +173,9 @@ func stateLoop(db *StateDB, mnx *ModelNexus, cnx *CommitNexus, path string) {
 			// send copy of updated stat to model
 			mnx.statChan <- *stat
 		case so := <-db.op_chan:
+			if !ready {
+				so.err <- NotRestoredError
+			}
 			// Insert or Remove entries in the database
 			kt := so.kt
 			if so.action == REMOVE {
