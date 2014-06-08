@@ -43,10 +43,7 @@ func (nx *ModelNexus) Quit() {
 
 func educate(model Model, monitor Monitor, nx *ModelNexus, bid float64) {
 
-	to := time.Now()
-	from := to.AddDate(0, -3, 0)
-	trace, err := monitor.Trace(from, to)
-	// trace, err := monitor.Trace(from, to)
+	trace, err := monitor.Trace()
 	if err != nil {
 		nx.errChan <- err
 		return
@@ -60,7 +57,7 @@ func educate(model Model, monitor Monitor, nx *ModelNexus, bid float64) {
 	C := make(chan PricePoint)
 	errChan := make(chan error)
 
-	if err = monitor.Start(5*time.Minute, C, errChan); err != nil {
+	if err = monitor.Start(C, errChan); err != nil {
 		nx.errChan <- err
 		return
 	}
