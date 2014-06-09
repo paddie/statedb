@@ -54,10 +54,10 @@ func educate(model Model, monitor Monitor, nx *ModelNexus, bid float64) {
 		return
 	}
 
-	C := make(chan PricePoint)
+	priceChan := make(chan PricePoint)
 	errChan := make(chan error)
 
-	if err = monitor.Start(C, errChan); err != nil {
+	if err = monitor.Start(priceChan, errChan); err != nil {
 		nx.errChan <- err
 		return
 	}
@@ -77,7 +77,7 @@ func educate(model Model, monitor Monitor, nx *ModelNexus, bid float64) {
 				fmt.Println("Scheduar: skip checkpoint")
 			}
 			q.cptChan <- do
-		case pp := <-C:
+		case pp := <-priceChan:
 			err := model.PriceUpdate(pp.Price(), pp.Time())
 			timeline.PriceChange(pp.Price())
 			if err != nil {

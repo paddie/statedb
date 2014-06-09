@@ -5,6 +5,7 @@ import (
 	// "github.com/paddie/goamz/ec2"
 	// "github.com/paddie/statedb/monitor"
 	// "io"
+	"os"
 	"time"
 )
 
@@ -22,10 +23,19 @@ type CheckpointQuery struct {
 	cptChan chan bool
 }
 
+func errorPanic(errchan chan error) {
+	for err := range errchan {
+		fmt.Printf("Fatal error: %s\n", err.Error())
+		os.Exit(1)
+	}
+}
+
 func stateLoop(db *StateDB, mnx *ModelNexus, cnx *CommitNexus, path string) {
 	// Global error handing channel
 	// - every error on this channel results in a panic
 	errChan := make(chan error)
+
+	go errorPanic(errChan)
 
 	stat := NewStat(3)
 
