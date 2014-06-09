@@ -115,12 +115,12 @@ func commitLoop(fs Persistence, cnx *CommitNexus) {
 		cnx.comRespChan <- c
 
 		// remove previos checkpoint
-		if c.Success() {
-			err := fs.Delete(c.ctx.CleanPath())
-			if err != nil {
-				fmt.Println(err)
-			}
-		}
+		// if c.Success() {
+		// 	err := fs.Delete(c.ctx.CleanPath())
+		// 	if err != nil {
+		// 		fmt.Println(err)
+		// 	}
+		// }
 	}
 
 	fmt.Println("Committer has shut down")

@@ -84,17 +84,6 @@ func stateLoop(db *StateDB, mnx *ModelNexus, cnx *CommitNexus, path string) {
 				}
 				continue
 			}
-
-			// is only checked once, to make sure that
-			// the mutable states have all been updated
-			// with new pointers.
-			if !ready {
-				ready = db.readyCheckpoint()
-				if !ready {
-					m.err <- NotRestoredError
-					continue
-				}
-			}
 			// stat trace for the timeline
 			t := m.t
 
