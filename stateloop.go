@@ -54,6 +54,17 @@ func stateLoop(db *StateDB, mnx *ModelNexus, cnx *CommitNexus, path string) {
 			// ignore this sync
 			stat.markConsistent()
 
+			// is only checked once, to make sure that
+			// the mutable states have all been updated
+			// with new pointers.
+			if !ready {
+				ready = db.readyCheckpoint()
+				if !ready {
+					m.err <- NotRestoredError
+					continue
+				}
+			}
+
 			// if there is an ongoing commit
 			// return immediately
 			if active_commit {
@@ -178,7 +189,9 @@ func stateLoop(db *StateDB, mnx *ModelNexus, cnx *CommitNexus, path string) {
 			}
 			// Insert or Remove entries in the database
 			kt := so.kt
-			if so.action == REMOVE {
+
+			switch so.action {
+			case REMOVE:
 				err := db.remove(kt)
 				if err != nil {
 					so.err <- err
@@ -189,7 +202,8 @@ func stateLoop(db *StateDB, mnx *ModelNexus, cnx *CommitNexus, path string) {
 				// Update and send stat
 				stat.remove(1, 1)
 				mnx.statChan <- *stat
-			} else if so.action == INSERT {
+				continue
+			case INSERT:
 				err := db.insert(kt, so.imm, so.mut)
 				if err != nil {
 					so.err <- err
@@ -201,12 +215,12 @@ func stateLoop(db *StateDB, mnx *ModelNexus, cnx *CommitNexus, path string) {
 				// Update and ship stat
 				stat.insert(1, 1)
 				mnx.statChan <- *stat
-			} else {
-				// if the action is unknown
-				// it is a fatal error
-				so.err <- UnknownOperation
-				errChan <- UnknownOperation
+				continue
 			}
+			// if the action is unknown
+			// it is a fatal error
+			so.err <- UnknownOperation
+			errChan <- UnknownOperation
 		case respChan := <-db.quit:
 			// if an active commit is ongoing
 			// TODO: set notify channel

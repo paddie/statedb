@@ -47,7 +47,7 @@ func (fs *FS_OS) Get(name string) ([]byte, error) {
 
 // Removes the named file or directory
 func (fs *FS_OS) Delete(name string) error {
-	return os.Remove(filepath.Join(fs.Dir, name))
+	return os.RemoveAll(filepath.Join(fs.Dir, name))
 }
 
 // Returns a list of file that matches the

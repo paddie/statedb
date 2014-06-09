@@ -8,7 +8,7 @@ import (
 	"github.com/paddie/statedb/schedular"
 	"os"
 	"runtime"
-	"sync"
+	// "sync"
 	"testing"
 	"time"
 )
@@ -47,8 +47,6 @@ func CleanUp(path string) error {
 
 func RestoreCheckpoint(t *testing.T) {
 	mdl := schedular.NewAlways()
-
-	// s :=  monitor.NewEC2Instance(s, instanceType, productDescription, availabilityZone, filter)
 	mon := monitor.NewTestMonitor(time.Second * 5)
 
 	f, _ := fs.NewFS_OS("cpt_test")
@@ -151,74 +149,68 @@ func WriteFullAndDelta(t *testing.T) {
 		t.Fatal("StateDB: should not have restored at this time")
 	}
 
-	t_str := statedb.ReflectTypeM(Weird{})
-
 	resp := make(chan *statedb.KeyType)
 	n := 0
-	var wg sync.WaitGroup
-
+	// var wg sync.WaitGroup
 	for i, m := range weird {
-		if i == 4 || i == 2 {
-			wg.Add(1)
-		}
-
 		n++
-		go func(m *Weird, wg *sync.WaitGroup, i int) {
-			kt, err := db.Insert(m)
-			// fmt.Println(kt)
+		go func(m *Weird, i int) {
+			kt, err := db.Register(m)
+			fmt.Println("register:", kt)
 			if err != nil {
-				if i == 4 || i == 2 {
-					wg.Done()
-				}
-				resp <- kt
 				t.Fatal(err)
 			}
-
-			m.m.K = kt.StringID() + "test"
-			wg.Done()
 			resp <- kt
-		}(m, &wg, i)
+			// m.m.K = kt.StringID() + "test"
+		}(m, i)
 	}
-	wg.Wait()
-	db.Sync()
-	for i, _ := range weird {
-		// for i := 0; i < n; i++ {
+	// wait for all objects to register
+	kts := []*statedb.KeyType{}
+	for _, _ = range weird {
 		kt := <-resp
+		fmt.Println("resp: ", kt)
 		if kt == nil {
-			continue
+			t.Fatal("nil keytype!")
 		}
-		if kt.StringID() == "4" || kt.StringID() == "2" {
-			if err := db.Remove(kt); err != nil {
-				t.Fatal(err)
-			}
-
-			if err := db.Sync(); err != nil {
-				t.Fatal(err)
-			}
-		}
-
-		// after 4 iterations, update the mutable bits
-		if i == 3 {
-			for i, w := range weird {
-				w.m.I = i
-			}
-		}
-		if i%2 == 0 {
-			if err := db.Sync(); err != nil {
-				t.Fatal(err)
-			}
-		}
-	}
-	kt, _ := statedb.NewStringKeyType("4", t_str)
-	if db.immutable.contains(kt) {
-		t.Error("kt " + kt.String() + " was not deleted.")
-	}
-	kt, _ = NewStringKeyType("2", t_str)
-	if db.immutable.contains(kt) {
-		t.Error("kt " + kt.String() + " was not deleted.")
+		kts = append(kts, kt)
 	}
 
-	err = db.Commit()
+	for _, kt := range kts {
+		// for i := 0; i < n; i++ {
+		fmt.Println("range: ", kt)
+
+		// if kt.StringID() == "4" || kt.StringID() == "2" {
+		// 	if err := db.Unregister(kt); err != nil {
+		// 		t.Fatal(err)
+		// 	}
+
+		// 	if err := db.PointOfConsistency(); err != nil {
+		// 		t.Fatal(err)
+		// 	}
+		// }
+
+		// // after 4 iterations, update the mutable bits
+		// if i == 3 {
+		// 	for i, w := range weird {
+		// 		w.m.I = i
+		// 	}
+		// }
+		// if i%2 == 0 {
+		// 	if err := db.PointOfConsistency(); err != nil {
+		// 		t.Fatal(err)
+		// 	}
+		// }
+	}
+	// kt, _ := statedb.NewStringKeyType("4", t_str)
+	// if db.immutable.contains(kt) {
+	// 	t.Error("kt " + kt.String() + " was not deleted.")
+	// }
+	// kt, _ = NewStringKeyType("2", t_str)
+	// if db.immutable.contains(kt) {
+	// 	t.Error("kt " + kt.String() + " was not deleted.")
+	// }
+
+	err = db.FinalCommit()
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -226,7 +218,7 @@ func WriteFullAndDelta(t *testing.T) {
 
 func TestCheckpoint(t *testing.T) {
 
-	t.Skip()
+	// t.Skip()
 
 	path := "cpt_test"
 
