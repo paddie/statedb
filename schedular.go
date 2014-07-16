@@ -11,8 +11,8 @@ type Model interface {
 	Name() string
 	Train(trace []PricePoint, bid float64) error
 	PriceUpdate(cost float64, datetime time.Time) error
-	StatUpdate(stat *Stat) error
-	Checkpoint(stat *Stat) (bool, error)
+	StatUpdate(stat Stat) error
+	PointOfConsistency() (bool, error)
 	Quit() error
 }
 
@@ -43,10 +43,7 @@ func (nx *ModelNexus) Quit() {
 
 func educate(model Model, monitor Monitor, nx *ModelNexus, bid float64) {
 
-	to := time.Now()
-	from := to.AddDate(0, -3, 0)
-	trace, err := monitor.Trace(from, to)
-	// trace, err := monitor.Trace(from, to)
+	trace, err := monitor.Trace()
 	if err != nil {
 		nx.errChan <- err
 		return
@@ -57,10 +54,10 @@ func educate(model Model, monitor Monitor, nx *ModelNexus, bid float64) {
 		return
 	}
 
-	C := make(chan PricePoint)
+	priceChan := make(chan PricePoint)
 	errChan := make(chan error)
 
-	if err = monitor.Start(5*time.Minute, C, errChan); err != nil {
+	if err = monitor.Start(priceChan, errChan); err != nil {
 		nx.errChan <- err
 		return
 	}
@@ -70,7 +67,7 @@ func educate(model Model, monitor Monitor, nx *ModelNexus, bid float64) {
 	for {
 		select {
 		case q := <-nx.cptQueryChan:
-			do, err := model.Checkpoint(q.s) // avg. sync time
+			do, err := model.PointOfConsistency()
 			if err != nil {
 				nx.errChan <- err
 			}
@@ -79,16 +76,15 @@ func educate(model Model, monitor Monitor, nx *ModelNexus, bid float64) {
 			} else {
 				fmt.Println("Scheduar: skip checkpoint")
 			}
-
 			q.cptChan <- do
-		case pp := <-C:
+		case pp := <-priceChan:
 			err := model.PriceUpdate(pp.Price(), pp.Time())
 			timeline.PriceChange(pp.Price())
 			if err != nil {
 				nx.errChan <- err
 			}
 		case s := <-nx.statChan:
-			err := model.StatUpdate(&s)
+			err := model.StatUpdate(s)
 			if err != nil {
 				nx.errChan <- err
 			}

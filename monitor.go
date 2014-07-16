@@ -31,8 +31,8 @@ type PricePoint interface {
 // }
 
 type Monitor interface {
-	Trace(from, to time.Time) ([]PricePoint, error)
-	Start(interval time.Duration, pChan chan PricePoint, errChan chan error) error
+	Trace() ([]PricePoint, error)
+	Start(chan<- PricePoint, chan<- error) error
 	Stop()
 	Active() bool
 	Name() string

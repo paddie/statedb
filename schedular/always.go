@@ -21,7 +21,7 @@ func (r *Always) Train(_ []statedb.PricePoint, _ float64) error {
 	return nil
 }
 
-func (r *Always) StatUpdate(_, _ float64) error {
+func (r *Always) StatUpdate(stat statedb.Stat) error {
 	return nil
 }
 
@@ -29,7 +29,7 @@ func (r *Always) PriceUpdate(_ float64, _ time.Time) error {
 	return nil
 }
 
-func (r *Always) Checkpoint(_, _, _ float64) (bool, error) {
+func (r *Always) PointOfConsistency() (bool, error) {
 	return true, nil
 }
 

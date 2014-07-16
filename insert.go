@@ -33,7 +33,7 @@ import (
 // 2. If the object CREATE is in Delta, delete the entry (object has now never existed)
 // 3. If object is not in the Delat (meaning in was created in a previous CPT), insert a REMOVE entry for that particular KeyType in the Delta
 // 4. If the key is not in StateDB, return error
-func (db *StateDB) Remove(kt *KeyType) error {
+func (db *StateDB) Unregister(kt *KeyType) error {
 
 	if !kt.IsValid() {
 		return errors.New("StateDB.Remove: invalid keytype " + kt.String())
@@ -49,7 +49,7 @@ func (db *StateDB) Remove(kt *KeyType) error {
 	return <-err_chan
 }
 
-func (db *StateDB) Insert(i interface{}) (*KeyType, error) {
+func (db *StateDB) Register(i interface{}) (*KeyType, error) {
 
 	// we allow for the mutable state to be <nil>
 	if i == nil {

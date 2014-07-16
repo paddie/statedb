@@ -26,12 +26,12 @@ func TestFS_S3_Put_Get(t *testing.T) {
 	str := "immaculate test!"
 
 	fmt.Println("Writing: ", str)
-	err = fs.Put("put.tst", []byte(str))
+	err = fs.Put("subfolder/put.tst", []byte(str))
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	data, err := fs.Get("put.tst")
+	data, err := fs.Get("subfolder/put.tst")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -40,12 +40,12 @@ func TestFS_S3_Put_Get(t *testing.T) {
 		t.Fatalf("PUT != GET data: '%s'", string(data))
 	}
 
-	err = fs.Delete("put.tst")
+	err = fs.Delete("subfolder/put.tst")
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	if _, err = fs.Get("put.tst"); err == nil {
+	if _, err = fs.Get("subfolder/put.tst"); err == nil {
 		t.Fatal("key should not exist!")
 	}
 }

@@ -5,6 +5,7 @@ import (
 	// "github.com/paddie/goamz/ec2"
 	// "github.com/paddie/statedb/monitor"
 	// "io"
+	"os"
 	"time"
 )
 
@@ -22,10 +23,19 @@ type CheckpointQuery struct {
 	cptChan chan bool
 }
 
+func errorPanic(errchan chan error) {
+	for err := range errchan {
+		fmt.Printf("Fatal error: %s\n", err.Error())
+		os.Exit(1)
+	}
+}
+
 func stateLoop(db *StateDB, mnx *ModelNexus, cnx *CommitNexus, path string) {
 	// Global error handing channel
 	// - every error on this channel results in a panic
 	errChan := make(chan error)
+
+	go errorPanic(errChan)
 
 	stat := NewStat(3)
 
@@ -54,16 +64,6 @@ func stateLoop(db *StateDB, mnx *ModelNexus, cnx *CommitNexus, path string) {
 			// ignore this sync
 			stat.markConsistent()
 
-			// if there is an ongoing commit
-			// return immediately
-			if active_commit {
-				m.err <- ActiveCommitError
-				if m.waitChan != nil {
-					waitChans = append(waitChans, m.waitChan)
-				}
-				continue
-			}
-
 			// is only checked once, to make sure that
 			// the mutable states have all been updated
 			// with new pointers.
@@ -73,6 +73,16 @@ func stateLoop(db *StateDB, mnx *ModelNexus, cnx *CommitNexus, path string) {
 					m.err <- NotRestoredError
 					continue
 				}
+			}
+
+			// if there is an ongoing commit
+			// return immediately
+			if active_commit {
+				m.err <- ActiveCommitError
+				if m.waitChan != nil {
+					waitChans = append(waitChans, m.waitChan)
+				}
+				continue
 			}
 			// stat trace for the timeline
 			t := m.t
@@ -173,9 +183,14 @@ func stateLoop(db *StateDB, mnx *ModelNexus, cnx *CommitNexus, path string) {
 			// send copy of updated stat to model
 			mnx.statChan <- *stat
 		case so := <-db.op_chan:
+			if !ready {
+				so.err <- NotRestoredError
+			}
 			// Insert or Remove entries in the database
 			kt := so.kt
-			if so.action == REMOVE {
+
+			switch so.action {
+			case REMOVE:
 				err := db.remove(kt)
 				if err != nil {
 					so.err <- err
@@ -186,7 +201,8 @@ func stateLoop(db *StateDB, mnx *ModelNexus, cnx *CommitNexus, path string) {
 				// Update and send stat
 				stat.remove(1, 1)
 				mnx.statChan <- *stat
-			} else if so.action == INSERT {
+				continue
+			case INSERT:
 				err := db.insert(kt, so.imm, so.mut)
 				if err != nil {
 					so.err <- err
@@ -198,12 +214,12 @@ func stateLoop(db *StateDB, mnx *ModelNexus, cnx *CommitNexus, path string) {
 				// Update and ship stat
 				stat.insert(1, 1)
 				mnx.statChan <- *stat
-			} else {
-				// if the action is unknown
-				// it is a fatal error
-				so.err <- UnknownOperation
-				errChan <- UnknownOperation
+				continue
 			}
+			// if the action is unknown
+			// it is a fatal error
+			so.err <- UnknownOperation
+			errChan <- UnknownOperation
 		case respChan := <-db.quit:
 			// if an active commit is ongoing
 			// TODO: set notify channel
